@@ -171,6 +171,66 @@ export async function deleteFileFromSupabaseStorage(storagePath: string): Promis
   }
 }
 
+/**
+ * Verifies authenticated Supabase session + private `german-learning` Storage upload, list, download & delete.
+ */
+export async function testSupabaseStorageConnection(): Promise<{
+  userId: string;
+  email: string;
+  bucket: string;
+  uploadedPath: string;
+  verifiedBytes: number;
+}> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لاختبار المصادقة والتخزين.');
+  }
+
+  const probeText = `Deutsch Meister Supabase Verification (${new Date().toISOString()})`;
+  const probeFileName = `_verify_${Date.now()}.txt`;
+  const probePath = `${ctx.user.id}/${probeFileName}`;
+  const probeBlob = new Blob([probeText], { type: 'text/plain' });
+
+  const { error: uploadErr } = await ctx.client.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .upload(probePath, probeBlob, {
+      contentType: 'text/plain',
+      upsert: false,
+    });
+  if (uploadErr) {
+    throw new Error(`فشل الرفع إلى حاوية ${SUPABASE_STORAGE_BUCKET}: ${uploadErr.message}`);
+  }
+
+  const { data: listData, error: listErr } = await ctx.client.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .list(ctx.user.id, { search: probeFileName });
+  if (listErr || !listData?.some((f) => f.name === probeFileName)) {
+    throw new Error(`فشل التحقق من قائمة الملفات في ${SUPABASE_STORAGE_BUCKET}: ${listErr?.message || 'غير ظاهر'}`);
+  }
+
+  const { data: downloadedBlob, error: dlErr } = await ctx.client.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .download(probePath);
+  if (dlErr || !downloadedBlob) {
+    throw new Error(`فشل تنزيل الملف من ${SUPABASE_STORAGE_BUCKET}: ${dlErr?.message || 'غير متاح'}`);
+  }
+
+  const downloadedText = await downloadedBlob.text();
+  if (downloadedText !== probeText) {
+    throw new Error('تطابق محتوى الملف المُنزَّل من Supabase Storage غير صحيح.');
+  }
+
+  await ctx.client.storage.from(SUPABASE_STORAGE_BUCKET).remove([probePath]);
+
+  return {
+    userId: ctx.user.id,
+    email: ctx.user.email || '',
+    bucket: SUPABASE_STORAGE_BUCKET,
+    uploadedPath: probePath,
+    verifiedBytes: downloadedBlob.size,
+  };
+}
+
 // =============================================================
 // SUPABASE POSTGRES CRUD & CROSS-DEVICE SYNC (WITH RLS)
 // =============================================================

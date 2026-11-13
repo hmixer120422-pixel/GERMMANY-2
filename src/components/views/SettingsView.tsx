@@ -35,6 +35,7 @@ import {
   getBrowserDataSummary,
 } from '../../services/storage';
 import { signOutFromSupabase } from '../../services/supabaseClient';
+import { testSupabaseStorageConnection } from '../../services/supabaseSync';
 import { formatBytes } from '../../utils/audioHash';
 
 interface SettingsViewProps {
@@ -86,6 +87,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [testingAudio, setTestingAudio] = useState(false);
   const [testResultMsg, setTestResultMsg] = useState<string | null>(null);
   const [testErrorMsg, setTestErrorMsg] = useState<string | null>(null);
+
+  // Supabase Auth + Storage verification state
+  const [testingSupabase, setTestingSupabase] = useState(false);
+  const [supabaseTestMsg, setSupabaseTestMsg] = useState<string | null>(null);
+  const [supabaseTestErr, setSupabaseTestErr] = useState<string | null>(null);
 
   const speeds = [0.5, 0.75, 0.85, 1.0, 1.15, 1.25, 1.5, 2.0];
   const timerOptions = [
@@ -179,8 +185,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSignOut = async () => {
     try {
       await signOutFromSupabase();
+      setSupabaseTestMsg(null);
+      setSupabaseTestErr(null);
     } catch (err) {
       console.error('Supabase sign out error:', err);
+    }
+  };
+
+  const handleTestSupabaseStorage = async () => {
+    setTestingSupabase(true);
+    setSupabaseTestMsg(null);
+    setSupabaseTestErr(null);
+    try {
+      const res = await testSupabaseStorageConnection();
+      setSupabaseTestMsg(
+        `✓ تم التحقق من Auth ورفع/قراءة/تنزيل/حذف الملف داخل حاوية ${res.bucket} (${res.verifiedBytes} بايت) للمستخدم ${res.email || res.userId}.`
+      );
+    } catch (err: any) {
+      setSupabaseTestErr(err?.message || 'فشل اختبار Supabase Auth/Storage.');
+    } finally {
+      setTestingSupabase(false);
     }
   };
 
@@ -207,7 +231,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             إعدادات التطبيق والصوت
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            تخصيص صوت ElevenLabs، سرعة القراءة، خيارات التمرير، والتخزين المحلي في المتصفح فقط.
+            تخصيص صوت ElevenLabs، سرعة القراءة، التخزين المحلي في المتصفح (IndexedDB)، والمزامنة السحابية عبر Supabase.
           </p>
         </div>
 
@@ -406,7 +430,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               1. <strong>ElevenLabs حصرياً:</strong> يتم توليد كل جملة أو كلمة من واجهة ElevenLabs الرسمية عبر الخادم، ولا يُستخدم أي صوت متصفح بديل.
             </p>
             <p className="leading-relaxed">
-              2. <strong>التخزين المحلي في متصفحك فقط:</strong> تُحفظ النصوص والمفردات وسجل القراءة وكاش الصوت في IndexedDB، وتُحفظ الإعدادات في localStorage دون رفع أي بيانات إلى السحابة.
+              2. <strong>التخزين المحلي والمزامنة السحابية:</strong> تُحفظ النصوص والمفردات وسجل القراءة وكاش الصوت محلياً في IndexedDB للعمل دون إنترنت، وعند تسجيل الدخول بحساب Supabase تتم مزامنتها وحفظ مستنداتك في حاوية <code>german-learning</code> الخاصة.
             </p>
           </div>
         </section>
@@ -546,7 +570,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  التخزين المحلي في المتصفح (Browser Storage Only)
+                  التخزين المحلي في المتصفح (IndexedDB & localStorage)
                 </h2>
                 <p className="text-xs text-slate-400">
                   النصوص والمفردات وسجل القراءة والكاش الصوتي في IndexedDB • التفضيلات في localStorage
@@ -637,6 +661,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </button>
                   )}
                   <button
+                    onClick={handleTestSupabaseStorage}
+                    disabled={testingSupabase}
+                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{testingSupabase ? 'جارٍ الاختبار...' : 'اختبار التخزين'}</span>
+                  </button>
+                  <button
                     onClick={handleSignOut}
                     className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5"
                   >
@@ -676,6 +708,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
+          {supabaseTestMsg && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+              {supabaseTestMsg}
+            </div>
+          )}
+
+          {supabaseTestErr && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300">
+              ✕ {supabaseTestErr}
+            </div>
+          )}
+
           {supabaseSyncError && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
               ✕ {supabaseSyncError}
@@ -707,7 +751,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <ol className="list-decimal list-inside space-y-1 leading-relaxed">
                   <li>
-                    أضف <code>SUPABASE_URL</code> و <code>SUPABASE_PUBLISHABLE_KEY</code> في أسرار التطبيق (Secrets).
+                    أضف <code>SUPABASE_URL</code> و <code>SUPABASE_PUBLISHABLE_KEY</code> و <code>ELEVENLABS_API_KEY</code> في متغيرات بيئة Vercel (Vercel Environment Variables) أو أسرار المشروع (Secrets).
                   </li>
                   <li>
                     افتح <strong>SQL Editor</strong> في لوحة تحكم Supabase وشغّل محتوى ملف <code>supabase/schema.sql</code> لإنشاء الجداول الأربعة، سياسات RLS، والحاوية الخاصة <code>german-learning</code>.
