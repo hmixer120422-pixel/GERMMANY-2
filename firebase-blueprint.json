@@ -1,0 +1,322 @@
+{
+  "entities": {
+    "TtsAudioCacheEntry": {
+      "title": "TtsAudioCacheEntry",
+      "description": "Metadata and distributed lock record for a shared German TTS audio file stored in Google Drive.",
+      "type": "object",
+      "properties": {
+        "audioHash": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Deterministic SHA-256 key computed from NFC-normalized text, language, provider, model, voiceId, audioFormat, and cacheVersion."
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 16,
+          "description": "BCP-47 language tag (e.g. de-DE)."
+        },
+        "originalText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Original German text segment."
+        },
+        "normalizedText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Unicode NFC normalized and whitespace-normalized German text."
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["elevenlabs"],
+          "description": "Primary TTS provider."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64,
+          "description": "ElevenLabs model identifier (e.g. eleven_multilingual_v2)."
+        },
+        "voiceId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "description": "ElevenLabs voice identifier."
+        },
+        "voiceGender": {
+          "type": "string",
+          "enum": ["female", "male"],
+          "description": "Voice gender folder classification."
+        },
+        "audioFormat": {
+          "type": "string",
+          "enum": ["mp3"],
+          "description": "Stored audio format."
+        },
+        "driveFileId": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Google Drive file ID inside GermanLearningAudioLibrary."
+        },
+        "driveFolderId": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Google Drive parent folder ID."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["generating", "ready", "failed", "expired", "missing"],
+          "description": "Current cache lifecycle and distributed lock state."
+        },
+        "fileSize": {
+          "type": "integer",
+          "description": "MP3 file size in bytes."
+        },
+        "duration": {
+          "type": "number",
+          "description": "Estimated or measured audio duration in seconds."
+        },
+        "lockOwner": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID or lock token owning the active generation lock."
+        },
+        "lockExpiresAt": {
+          "type": "integer",
+          "description": "Epoch milliseconds timestamp after which an abandoned generating lock can be recovered."
+        },
+        "approvedForShared": {
+          "type": "boolean",
+          "description": "Whether the text is approved educational content eligible for shared Drive library storage."
+        },
+        "cacheVersion": {
+          "type": "integer",
+          "description": "Schema/audio cache version."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        },
+        "lastAccessedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of last shared playback hit."
+        }
+      },
+      "required": [
+        "audioHash",
+        "language",
+        "originalText",
+        "normalizedText",
+        "provider",
+        "model",
+        "voiceId",
+        "audioFormat",
+        "driveFileId",
+        "driveFolderId",
+        "status",
+        "fileSize",
+        "duration",
+        "cacheVersion",
+        "createdAt",
+        "updatedAt",
+        "lastAccessedAt"
+      ]
+    },
+    "TtsStatistics": {
+      "title": "TtsStatistics",
+      "description": "Aggregated usage and cost-saving counters for the Shared Cloud Audio Library.",
+      "type": "object",
+      "properties": {
+        "statId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "elevenLabsGenerationsCount": {
+          "type": "integer"
+        },
+        "sharedCacheHitsCount": {
+          "type": "integer"
+        },
+        "localCacheHitsCount": {
+          "type": "integer"
+        },
+        "fallbackVoiceUsesCount": {
+          "type": "integer"
+        },
+        "failedGenerationsCount": {
+          "type": "integer"
+        },
+        "totalCloudAudioBytes": {
+          "type": "integer"
+        },
+        "sharedAudioFilesCount": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "statId",
+        "elevenLabsGenerationsCount",
+        "sharedCacheHitsCount",
+        "localCacheHitsCount",
+        "fallbackVoiceUsesCount",
+        "failedGenerationsCount",
+        "updatedAt"
+      ]
+    },
+    "TtsLibraryConfig": {
+      "title": "TtsLibraryConfig",
+      "description": "Shared audio library settings configured by the administrator (never stores OAuth secrets or refresh tokens).",
+      "type": "object",
+      "properties": {
+        "configId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "defaultModel": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 64
+        },
+        "defaultFemaleVoiceId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "defaultMaleVoiceId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "defaultCourseVoiceId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "rootFolderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "driveConnected": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "configId",
+        "defaultModel",
+        "defaultFemaleVoiceId",
+        "defaultMaleVoiceId",
+        "defaultCourseVoiceId",
+        "rootFolderName",
+        "driveConnected",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized administrator role document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "role", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private learner profile keyed by Firebase Auth UID with strict PII isolation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": ["learner", "admin"]
+        },
+        "preferredVoiceId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/ttsAudioCache/{audioHash}": {
+      "schema": { "$ref": "#/entities/TtsAudioCacheEntry" },
+      "description": "Centralized shared German TTS audio metadata index and distributed generation lock records."
+    },
+    "/ttsStatistics/{statId}": {
+      "schema": { "$ref": "#/entities/TtsStatistics" },
+      "description": "Aggregated audio cache hit, generation, fallback, and storage statistics."
+    },
+    "/ttsConfig/{configId}": {
+      "schema": { "$ref": "#/entities/TtsLibraryConfig" },
+      "description": "Publicly readable (authenticated) non-secret shared audio configuration such as default ElevenLabs voices."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Administrator role lookup collection."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profiles isolated per owner UID and administrators."
+    }
+  }
+}

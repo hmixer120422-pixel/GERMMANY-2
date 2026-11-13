@@ -1,0 +1,1881 @@
+# MASTER PROMPT — COMPLETE AI GERMAN READING, LISTENING & TEXT GENERATION APPLICATION
+
+## PROJECT NAME
+Deutsch Meister – AI German Reading, Listening & Learning Studio
+
+## 1. PROJECT OVERVIEW
+
+Build a complete, professional, fully functional AI-powered German learning application.
+
+The application must combine:
+
+1. AI German Text Generator.
+2. German reading and listening system.
+3. Natural German female Text-to-Speech.
+4. Sentence-by-sentence synchronized reading.
+5. Individual word pronunciation on click.
+6. Arabic translation and vocabulary explanations.
+7. Complete CEFR learning levels from A1 to C2.
+8. Long listening sessions and concentration mode.
+9. Personal vocabulary and learning history.
+10. Importing and reading external German documents.
+
+This must be a real working application, not a static mockup or UI demonstration.
+
+The application must be designed for people learning German from beginner level A1 up to advanced level C2.
+
+The user must be able to generate original German texts, listen to them with a natural German female voice, follow the sentences visually, click individual words to hear their pronunciation, and understand vocabulary through Arabic explanations.
+
+IMPORTANT:
+Do not simplify the project into a basic Text-to-Speech converter.
+Build a complete German language reading and listening learning platform.
+
+---
+
+# PART 1 — LANGUAGE AND USER INTERFACE
+
+## 2. APPLICATION LANGUAGE
+
+The primary interface language must be Arabic.
+
+Requirements:
+
+- Arabic interface must use RTL layout.
+- German content must always use LTR layout.
+- English technical terminology may remain in English when necessary.
+- German text must never be reversed or displayed incorrectly.
+- Arabic translations must display correctly.
+- Mixed Arabic and German text must preserve the correct direction.
+- Support Arabic fonts with excellent readability.
+
+The application should be easy to use for Arabic-speaking German learners.
+
+## 3. DESIGN AND VISUAL IDENTITY
+
+Create a modern, premium-looking interface.
+
+Design principles:
+
+- Clean and professional.
+- Minimal visual clutter.
+- Excellent readability.
+- Modern typography.
+- Comfortable spacing.
+- Responsive layout.
+- Smooth interactions.
+- Clear controls.
+- Consistent visual hierarchy.
+
+Use a professional white or soft-neutral background with subtle blue accents.
+
+Provide:
+- Light mode.
+- Dark mode.
+- Responsive desktop layout.
+- Responsive tablet layout.
+- Responsive mobile layout.
+
+The desktop version should have a comfortable reading area with a dedicated sidebar.
+
+Suggested main navigation:
+
+1. الرئيسية.
+2. مولّد النصوص.
+3. القراءة والاستماع.
+4. قاموس الكلمات.
+5. كلماتي المحفوظة.
+6. سجل القراءة.
+7. الإعدادات.
+
+Use icons and Arabic labels.
+
+Do not make buttons decorative. Every visible button must have a working function.
+
+---
+
+# PART 2 — COMPLETE GERMAN CEFR LEVEL SYSTEM
+
+## 4. SUPPORT ALL GERMAN LEVELS
+
+Implement all six CEFR levels:
+
+- A1 — Beginner.
+- A2 — Elementary.
+- B1 — Intermediate.
+- B2 — Upper Intermediate.
+- C1 — Advanced.
+- C2 — Proficient / Near-native.
+
+The user must be able to select any level manually.
+
+Do not restrict the application to A1, A2 or B1.
+
+The selected level must control:
+
+- Vocabulary difficulty.
+- Grammar complexity.
+- Sentence length.
+- Sentence structure.
+- Verb forms.
+- Idiomatic expressions.
+- Connectors.
+- Text length.
+- Degree of abstraction.
+- Formality.
+- Naturalness of expression.
+
+## 5. LEVEL-SPECIFIC WRITING REQUIREMENTS
+
+### A1 — Beginner
+
+Generate simple German texts.
+
+Use:
+- Basic vocabulary.
+- Short sentences.
+- Present tense.
+- Basic articles.
+- Simple questions.
+- Common everyday expressions.
+- Basic descriptions.
+- Simple personal information.
+
+Topics:
+- My family.
+- My daily routine.
+- My home.
+- Food.
+- Shopping.
+- Friends.
+- School.
+- Work.
+- My city.
+- Hobbies.
+
+The text should be understandable by a beginner who has just started learning German.
+
+### A2 — Elementary
+
+Generate connected everyday German texts.
+
+Use:
+- Common vocabulary.
+- Modal verbs.
+- Separable verbs.
+- Perfekt.
+- Simple subordinate clauses.
+- Basic comparisons.
+- Everyday experiences.
+- Common prepositions.
+- Simple explanations and opinions.
+
+Topics:
+- Holidays.
+- Travel.
+- Work.
+- Family life.
+- Health.
+- Shopping.
+- Appointments.
+- Transportation.
+- Learning German.
+
+### B1 — Intermediate
+
+Generate realistic German reading passages.
+
+Use:
+- Personal experiences.
+- Opinions.
+- Reasons and explanations.
+- Nebensätze.
+- weil, obwohl, wenn, dass, während.
+- Relative clauses.
+- Common Präteritum forms.
+- Future expressions.
+- Practical social situations.
+- More varied vocabulary.
+
+The reader should understand opinions, events and explanations in connected passages.
+
+### B2 — Upper Intermediate
+
+Generate detailed and well-structured passages.
+
+Use:
+- More advanced vocabulary.
+- Complex sentence structures.
+- Passive voice.
+- Konjunktiv II.
+- Formal and informal expressions.
+- Arguments and counterarguments.
+- Social and professional discussions.
+- Abstract subjects.
+- Nuanced opinions.
+- Advanced connectors.
+
+Topics:
+- Education.
+- Employment.
+- Technology.
+- Economy.
+- Environment.
+- Social issues.
+- Cultural differences.
+- Professional life.
+
+### C1 — Advanced
+
+Generate sophisticated German texts.
+
+Use:
+- Advanced vocabulary.
+- Complex grammatical structures.
+- Formal and academic language where appropriate.
+- Precise expressions.
+- Nuanced arguments.
+- Longer connected sentences.
+- Idiomatic language.
+- Advanced connectors.
+- Detailed explanations.
+- Abstract and professional subjects.
+
+### C2 — Proficient
+
+Generate highly sophisticated German texts approaching native-level written fluency.
+
+Use:
+- Broad and precise vocabulary.
+- Subtle differences in meaning.
+- Advanced idiomatic expressions.
+- Sophisticated sentence construction.
+- Stylistic variation.
+- Complex argumentation.
+- Natural linguistic nuance.
+- Formal, literary and conversational registers.
+- Accurate and elegant German.
+
+IMPORTANT:
+A1 through C2 must have genuinely different vocabulary, grammar and linguistic complexity.
+
+Do not simply make the same text longer or shorter to simulate different levels.
+
+## 6. DEFAULT LEVEL
+
+When the user opens the application for the first time, select A2 as the default level.
+
+Allow the user to change the level at any time.
+
+Remember the user's last selected level.
+
+The selected level should automatically be used by the Text Generator unless the user changes it.
+
+---
+
+# PART 3 — AI GERMAN TEXT GENERATOR
+
+## 7. MAIN GENERATOR FEATURE
+
+Create a dedicated feature called:
+
+KI-TEXTGENERATOR
+AI German Text Generator
+
+The most important requirement:
+
+The user should only need to enter a topic.
+
+The AI must automatically create a complete original German reading passage based on that topic.
+
+The user should not be required to write a complete question or prompt.
+
+Examples of topics:
+
+- Arbeit.
+- Ausbildung in Deutschland.
+- Familie.
+- Ramadan.
+- Gesundheit.
+- Reisen.
+- Umwelt.
+- Technologie.
+- Künstliche Intelligenz.
+- Bildung.
+- Freizeit.
+- Ernährung.
+- Sport.
+- Wohnen.
+- Migration.
+- Freundschaft.
+- Gesellschaft.
+- Wirtschaft.
+- Kultur.
+- Integration.
+- Berufsausbildung.
+- Pflegefachmann.
+- Klimawandel.
+- Soziale Medien.
+- Zukunft.
+- Deutschland.
+
+The topic can be entered in:
+
+- Arabic.
+- German.
+- French.
+- English.
+
+The AI must understand the topic regardless of input language and generate the reading passage entirely in German.
+
+## 8. TEXT GENERATION STRUCTURE
+
+By default, texts must resemble German textbook reading exercises.
+
+The default format should include:
+
+FIRST LINE:
+
+A fictional person's name, age and city.
+
+Example:
+
+Erman Akay, 30 Jahre, München
+
+SECOND PART:
+
+A first-person narrative inside German quotation marks.
+
+Example:
+
+„Ich bin Kfz-Ingenieur. In meiner Firma arbeiten viele Menschen aus verschiedenen Ländern. Wir verstehen uns sehr gut und unterstützen uns gegenseitig. Für mich ist ein gutes Arbeitsklima besonders wichtig. Ich finde, dass jeder Mensch die gleichen Chancen bekommen sollte.“
+
+Requirements:
+
+- Use realistic fictional names.
+- Use realistic ages.
+- Use German-speaking cities.
+- Use natural everyday German.
+- Make the writing sound authentic.
+- Use realistic personal experiences.
+- Include opinions and explanations.
+- Include practical examples.
+- Maintain logical connections.
+- Use correct German punctuation.
+- Use German quotation marks.
+- Avoid repetitive expressions.
+- Avoid unnecessary filler sentences.
+
+The generated text should visually resemble a passage from a professionally designed German learning textbook.
+
+Do not copy existing textbook passages.
+Create original texts inspired by the general educational style of German language learning books.
+
+## 9. TEXT LENGTH
+
+Provide these default word counts:
+
+| Level | Default length |
+| A1 | 50–70 words |
+| A2 | 70–100 words |
+| B1 | 100–140 words |
+| B2 | 140–180 words |
+| C1 | 180–220 words |
+| C2 | 220–280 words |
+
+Allow the user to generate longer texts.
+
+## 10. TEXT STYLE SELECTOR
+
+Add an optional text-style selector.
+
+Available styles:
+
+1. Personal Story — Persönliche Geschichte.
+2. Daily Life — Alltag.
+3. Dialogue — Dialog.
+4. Interview — Interview.
+5. Newspaper Article — Zeitungsartikel.
+6. Educational Passage — Lehrtext.
+7. Opinion — Meinung.
+8. Discussion — Diskussion.
+9. Short Story — Kurzgeschichte.
+10. Informative Text — Informationstext.
+11. Experience Report — Erfahrungsbericht.
+12. Professional Conversation — Berufsgespräch.
+13. Email — E-Mail.
+14. Formal Letter — Formeller Brief.
+15. Blog Post — Blogbeitrag.
+
+Default style:
+
+Educational Passage / German Textbook Reading.
+
+When the selected style is Personal Story, use a fictional person's name, age, city and first-person narrative.
+
+For dialogue or interviews, use appropriate speaker names and natural conversational German.
+
+## 11. TEXT GENERATION SETTINGS
+
+Provide optional settings:
+
+- Topic.
+- CEFR level.
+- Text length.
+- Text style.
+- Number of paragraphs.
+- Formal or informal German.
+- Everyday or professional vocabulary.
+- New or different text.
+- Generate a text at another level.
+
+Only the topic should be mandatory.
+
+## 12. GENERATE ANOTHER TEXT
+
+Add a button:
+
+Generate Another Text.
+
+When clicked:
+- Keep the same topic.
+- Keep the selected level.
+- Keep the selected style.
+- Generate a completely new original passage.
+- Avoid repeating the previous text.
+- Avoid repeating the same fictional person unnecessarily.
+
+## 13. SAME TOPIC, DIFFERENT LEVELS
+
+Add a feature:
+
+Compare Levels.
+
+The user enters one topic and can generate versions at:
+
+A1, A2, B1, B2, C1 and C2.
+
+Allow the user to compare how the vocabulary and grammar change at each level.
+
+Each version must be independently and appropriately written for its level.
+
+Never use direct machine simplification alone. Generate a linguistically appropriate text for each level.
+
+---
+
+# PART 4 — NATURAL GERMAN FEMALE TEXT-TO-SPEECH
+
+## 14. MOST IMPORTANT AUDIO REQUIREMENT
+
+The application must use a high-quality, natural-sounding German female voice.
+
+The voice must sound as close as practically possible to a real native German woman reading an educational text.
+
+Preferred voice:
+
+- Female.
+- Native German.
+- Standard German accent (Hochdeutsch).
+- Warm.
+- Calm.
+- Clear.
+- Pleasant.
+- Natural.
+- Professional.
+- Consistent.
+
+The voice must be particularly suitable for long reading sessions and language learning.
+
+## 15. PREFERRED VOICE TECHNOLOGY
+
+Use Google Cloud Text-to-Speech as the preferred production TTS engine.
+
+Preferred voice families:
+
+1. Chirp 3 HD German female voices.
+2. Neural2 German female voices.
+3. The highest-quality available German female neural voice supported by the configured service.
+
+Use actual supported voice names and language codes.
+
+Do not invent voice IDs.
+
+Before selecting the default voice:
+- Check available German voice models.
+- Check their gender.
+- Check their language support.
+- Check their quality and audio compatibility.
+- Choose an appropriate female Standard German voice.
+
+If multiple suitable voices are available, let the user preview and select one.
+
+Do not claim a voice is human or native unless its published characteristics support that description.
+
+## 16. VOICE CHARACTERISTICS
+
+The preferred voice must have:
+
+- Correct German pronunciation.
+- Clear articulation.
+- Natural rhythm.
+- Realistic sentence intonation.
+- Appropriate emphasis.
+- Comfortable pacing.
+- Smooth transitions.
+- Natural sentence endings.
+- Correct pronunciation of German compound words.
+- Correct pronunciation of ä, ö, ü and ß.
+- Correct pronunciation of German names and cities.
+
+Avoid:
+- Metallic sound.
+- Robotic sound.
+- Excessively synthetic rhythm.
+- Overly exaggerated emotion.
+- Unnatural pauses.
+- Artificially separated words.
+- Inconsistent pronunciation.
+- Unwanted voice changes.
+
+The audio should feel like a German female teacher reading a textbook aloud.
+
+## 17. VOICE SELECTION
+
+Create a voice selection menu.
+
+Each voice must show:
+
+- Voice name.
+- Gender.
+- Language.
+- Accent.
+- Audio preview button.
+
+Provide a default female German voice.
+
+Allow the user to save the preferred voice.
+
+Do not change the selected voice between sentences.
+
+## 18. VOICE SPEED
+
+Add these reading speeds:
+
+- 0.75x — Very slow.
+- 0.85x — Slow learning.
+- 1.0x — Natural speed.
+- 1.15x — Slightly faster.
+- 1.25x — Fast.
+- 1.5x — Very fast.
+- 1.75x — Extra fast.
+- 2.0x — Maximum speed.
+
+Default:
+
+1.0x.
+
+Speed adjustment must preserve reasonable voice quality.
+
+Use appropriate TTS controls where supported rather than relying on a method that damages voice quality.
+
+## 19. VOICE PITCH
+
+Allow subtle pitch adjustment only when supported by the selected TTS technology.
+
+Do not create unnatural or cartoon-like voices.
+
+Provide a Reset to Default button.
+
+## 20. AUDIO QUALITY
+
+Use appropriate audio output quality.
+
+Prefer:
+- High-quality audio.
+- Consistent sample rate.
+- Clear speech.
+- No unnecessary compression.
+- No clipping.
+- No overlapping playback.
+
+Use a consistent audio format supported by the chosen provider.
+
+---
+
+# PART 5 — SENTENCE-BY-SENTENCE READING ENGINE
+
+## 21. DEFAULT READING BEHAVIOR
+
+THIS IS ONE OF THE MOST IMPORTANT REQUIREMENTS.
+
+The default reading mode must be SENTENCE BY SENTENCE.
+
+NOT WORD BY WORD.
+
+When the user presses Play:
+
+1. Read the first complete German sentence.
+2. Finish the complete sentence.
+3. Move naturally to the next sentence.
+4. Read the next complete sentence.
+5. Continue automatically until the end of the text.
+
+Do not read individual words separately during normal reading.
+
+Do not insert artificial pauses between individual words.
+
+The voice must maintain natural German rhythm and sentence intonation.
+
+## 22. SENTENCE HIGHLIGHTING
+
+During normal playback:
+
+- Highlight the complete active sentence.
+- Do not highlight individual words one by one.
+- Use a subtle background highlight.
+- Keep the highlighted sentence clearly visible.
+- Automatically scroll to the active sentence.
+- Remove the highlight when appropriate.
+- Highlight the next sentence when its audio starts.
+
+The highlighting must be synchronized with actual audio playback.
+
+Do not use arbitrary fixed timers to simulate synchronization.
+
+## 23. SENTENCE SEGMENTATION
+
+Implement intelligent German sentence detection.
+
+Recognize:
+- Full stops.
+- Question marks.
+- Exclamation marks.
+- Paragraph boundaries.
+- German quotation marks.
+- Abbreviations.
+- Decimal numbers.
+- Common German titles and abbreviations.
+
+Avoid splitting a sentence incorrectly.
+
+Preserve punctuation and the original text.
+
+The application should understand German sentence structure as well as possible.
+
+## 24. SENTENCE AUDIO GENERATION
+
+For accurate sentence highlighting:
+
+- Segment the text into complete sentences.
+- Prepare speech audio for each sentence or use reliable sentence-level timing metadata when supported.
+- Preserve the same selected German voice.
+- Queue the audio in the correct order.
+- Start the following sentence automatically after the previous one finishes.
+- Use a small natural pause between sentences.
+- Use a slightly longer pause between paragraphs.
+
+Suggested default pauses:
+
+- Between sentences: 250–450 milliseconds.
+- Between paragraphs: 600–900 milliseconds.
+
+Allow appropriate natural variation where useful.
+
+Do not create awkward silence.
+
+Do not interrupt the natural sentence flow.
+
+## 25. LONG TEXT PLAYBACK
+
+The application must support continuous reading of long German texts.
+
+Target use cases:
+- 10 minutes.
+- 20 minutes.
+- 30 minutes.
+- 45 minutes.
+- 60 minutes or more.
+
+Avoid:
+- Unexpected playback stops.
+- Overlapping audio.
+- Repeated sentences.
+- Missing sentences.
+- Voice changes.
+- Excessive pauses.
+- Unnecessary API requests.
+
+Use audio chunking, prefetching and caching to support long sessions efficiently.
+
+Prepare the first few sentences before playback when possible.
+
+Prepare subsequent sentences in the background as the current ones play.
+
+Recover gracefully from temporary network or TTS failures.
+
+Never lose the current sentence position after a recoverable error.
+
+---
+
+# PART 6 — INDIVIDUAL WORD PRONUNCIATION
+
+## 26. CLICK-TO-PRONOUNCE
+
+The user must be able to click ANY individual German word in the displayed text.
+
+This action is separate from the normal reading mode.
+
+When the user clicks a word:
+
+1. Pause the current sentence or continuous playback.
+2. Identify exactly which word was selected.
+3. Generate or retrieve audio for that word.
+4. Pronounce ONLY the selected word.
+5. Do not read the full sentence.
+6. Do not read neighboring words.
+7. Use the same selected German female voice.
+8. Return to the previous reading position after word playback.
+
+Example:
+
+Displayed sentence:
+
+„Ich lerne Deutsch, weil ich in Deutschland arbeiten möchte.“
+
+If the user clicks:
+
+arbeiten
+
+The audio must pronounce only:
+
+„arbeiten“
+
+It must NOT pronounce:
+
+„Ich lerne Deutsch ...“
+
+It must NOT read the complete sentence.
+
+## 27. WORD INTERACTION
+
+Every German word must be independently clickable.
+
+Provide:
+- Hover effect.
+- Click effect.
+- Selected word highlight.
+- Pronunciation playback.
+- Vocabulary popup.
+
+Do not require users to select the entire sentence before selecting a word.
+
+The word selection must work with:
+- Normal paragraphs.
+- Long texts.
+- Quoted passages.
+- Dialogues.
+- Punctuation.
+- Words with German umlauts.
+- Compound words.
+
+Ignore punctuation when identifying the pronunciation target.
+
+## 28. WORD PLAYBACK SETTINGS
+
+When the word is clicked:
+
+- Pause current reading.
+- Pronounce selected word only.
+- Keep the current sentence position.
+- Return to the paused state after pronunciation.
+- Allow Resume.
+
+Add an optional setting:
+
+Automatic Resume After Word Pronunciation: ON/OFF.
+
+Default: OFF.
+
+The user can choose whether normal reading resumes automatically after the selected word is pronounced.
+
+## 29. WORD PRONUNCIATION QUALITY
+
+Use the same selected German voice.
+
+Ensure correct pronunciation for:
+- Nouns.
+- Verbs.
+- Adjectives.
+- Compound words.
+- Separable verbs.
+- Prefixes.
+- German umlauts.
+- ß.
+- Foreign-origin words used in German.
+
+For ambiguous words, use the selected word's context where available to determine the correct pronunciation.
+
+However, pronounce only the selected word.
+
+---
+
+# PART 7 — INTERACTIVE ARABIC DICTIONARY
+
+## 30. VOCABULARY POPUP
+
+When the user clicks a German word, display a professional vocabulary popup.
+
+Show:
+
+1. German word.
+2. Arabic meaning.
+3. Pronunciation written using Arabic letters.
+4. IPA pronunciation.
+5. Word type.
+6. Meaning in the current context.
+7. One or more useful examples.
+8. Arabic translation of examples.
+9. Pronunciation button.
+10. Save to vocabulary button.
+
+Arabic explanations must be clear and appropriate for Arabic-speaking German learners.
+
+Use proper Arabic, not automatically generated transliteration without verification.
+
+## 31. NOUN INFORMATION
+
+For German nouns, display:
+
+- Article: der, die or das.
+- Singular.
+- Plural.
+- Arabic meaning.
+- IPA pronunciation.
+- Arabic-letter pronunciation.
+- Example sentence.
+
+Example:
+
+Haus
+
+- Article: das.
+- Plural: Häuser.
+- Arabic meaning: منزل / بيت.
+- Pronunciation: هاوس.
+- Example: Das Haus ist sehr groß.
+- Translation: المنزل كبير جداً.
+
+Do not omit noun gender.
+
+## 32. VERB INFORMATION
+
+For German verbs, display:
+
+- Infinitiv.
+- Präsens.
+- Präteritum.
+- Perfekt.
+- Auxiliary verb.
+- Separable or inseparable status when applicable.
+- Arabic meaning.
+- Example sentence.
+- Arabic translation.
+
+Example:
+
+gehen
+
+- Infinitiv: gehen.
+- Präteritum: ging.
+- Perfekt: ist gegangen.
+- Auxiliary: sein.
+- Arabic meaning: يذهب.
+- Example: Ich gehe zur Arbeit.
+- Translation: أذهب إلى العمل.
+
+Make sure the grammatical information is correct.
+
+## 33. ADJECTIVES AND ADVERBS
+
+For adjectives and adverbs, display:
+
+- Basic form.
+- Comparative.
+- Superlative when applicable.
+- Arabic meaning.
+- Example sentence.
+- Arabic translation.
+
+## 34. CONTEXTUAL MEANING
+
+A word may have multiple meanings.
+
+Do not always show only its first dictionary meaning.
+
+Use the sentence in which the word appears to identify its intended meaning.
+
+For example, distinguish meanings according to context.
+
+Display:
+
+- Meaning in this sentence.
+- Other common meanings when useful.
+
+---
+
+# PART 8 — SENTENCE TRANSLATION AND LEARNING
+
+## 35. SENTENCE POPUP
+
+Allow the user to click a complete German sentence.
+
+Show:
+- German sentence.
+- Arabic translation.
+- Important vocabulary.
+- Grammatical notes when useful.
+- Pronounce sentence button.
+- Repeat sentence button.
+
+Sentence pronunciation must use the selected German voice.
+
+## 36. SENTENCE-BY-SENTENCE LEARNING
+
+Add an optional learning mode:
+
+- Read one complete sentence.
+- Pause automatically.
+- Display Arabic translation.
+- Allow the learner to repeat the sentence.
+- Provide a Next Sentence button.
+- Allow the learner to replay the sentence.
+
+This mode must be separate from normal continuous playback.
+
+## 37. NORMAL READING MODE
+
+Default mode:
+
+Read all sentences sequentially and continuously.
+
+The user follows the text while the active sentence is highlighted.
+
+No automatic translation popup should interrupt normal listening.
+
+## 38. LISTENING MODE
+
+Add a dedicated concentration mode.
+
+Features:
+- Hide unnecessary interface elements.
+- Show the German text clearly.
+- Highlight the current sentence.
+- Keep the audio controls accessible.
+- Use a calm visual design.
+- Avoid distracting animations.
+- Support continuous listening.
+- Allow optional hiding of Arabic translations.
+
+---
+
+# PART 9 — AUDIO PLAYER
+
+## 39. MAIN AUDIO PLAYER
+
+Create a professional audio player fixed at the bottom of the reading interface.
+
+Controls:
+
+- Play.
+- Pause.
+- Resume.
+- Stop.
+- Previous sentence.
+- Next sentence.
+- Repeat current sentence.
+- Repeat selected word.
+- Speed selector.
+- Voice selector.
+- Volume control.
+- Progress bar.
+- Current sentence indicator.
+- Total number of sentences.
+- Audio status.
+
+The audio player must remain usable while reading long passages.
+
+## 40. READING NAVIGATION
+
+Allow the user to:
+
+- Start from the beginning.
+- Start from any selected sentence.
+- Go to the previous sentence.
+- Go to the next sentence.
+- Repeat the active sentence.
+- Stop playback.
+- Resume from the last position.
+
+Never restart the entire text when the user wants to continue from the current sentence.
+
+## 41. AUDIO STATE MANAGEMENT
+
+Manage playback states correctly:
+
+- Idle.
+- Loading.
+- Playing.
+- Paused.
+- Stopped.
+- Error.
+- Completed.
+
+Only one audio source may play at a time.
+
+If the user clicks another word while sentence playback is active, stop or pause the previous audio properly before playing the selected word.
+
+Prevent overlapping audio.
+
+---
+
+# PART 10 — LONG LISTENING AND CONCENTRATION
+
+## 42. LONG LISTENING SESSION
+
+Optimize the application for long listening sessions.
+
+The user must be able to listen to educational German content for 20–60 minutes or more.
+
+Requirements:
+- Stable playback.
+- Consistent female voice.
+- No unnecessary interruptions.
+- Efficient audio loading.
+- Low memory consumption.
+- Intelligent audio caching.
+- Smooth transitions between sentence chunks.
+- Recovery after temporary connection problems.
+
+## 43. CONCENTRATION MODE
+
+Add a special mode called:
+
+KONZENTRATIONSMODUS
+
+Purpose:
+Long listening sessions and focused German reading.
+
+Features:
+- Minimal interface.
+- Large readable text.
+- Sentence highlighting.
+- No distracting popups.
+- No unnecessary notifications.
+- Calm visual appearance.
+- Continuous reading.
+- Optional dimmed background.
+- Optional hiding of translation information.
+
+## 44. SESSION TIMER
+
+Add an optional listening timer:
+
+- 10 minutes.
+- 20 minutes.
+- 30 minutes.
+- 45 minutes.
+- 60 minutes.
+- Unlimited.
+
+When the timer finishes, offer to stop playback or continue.
+
+Do not stop the playback unexpectedly unless the user has explicitly selected that behavior.
+
+## 45. REPEAT SETTINGS
+
+Allow users to configure:
+
+- Repeat current sentence.
+- Repeat paragraph.
+- Repeat entire text.
+- Number of repetitions.
+- Optional pause between repetitions.
+
+---
+
+# PART 11 — TEXT INPUT AND DOCUMENT IMPORT
+
+## 46. TEXT INPUT
+
+Allow the user to:
+
+- Type German text.
+- Paste German text.
+- Clear the text.
+- Edit the text.
+- Save the text.
+- Send the text to the reading player.
+
+The text input area must preserve paragraphs and punctuation.
+
+## 47. DOCUMENT UPLOAD
+
+Support:
+
+- TXT.
+- PDF.
+- DOCX.
+
+Extract text accurately.
+
+Preserve:
+- Paragraphs.
+- Sentence order.
+- Headings when possible.
+- German characters.
+- Punctuation.
+
+For scanned PDFs, optionally support OCR when available.
+
+If a document cannot be processed, display a clear error message instead of silently failing.
+
+## 48. TEXT CLEANING
+
+Before reading:
+
+- Remove unnecessary formatting characters.
+- Preserve meaningful punctuation.
+- Preserve paragraphs.
+- Avoid duplicated spaces.
+- Preserve German quotation marks.
+- Detect headings when possible.
+
+Never remove meaningful content from the uploaded document.
+
+## 49. IMPORTED TEXT LEARNING
+
+Imported German documents must support the same features as generated passages:
+
+- Sentence-by-sentence reading.
+- Natural German female voice.
+- Sentence highlighting.
+- Individual word pronunciation.
+- Arabic translation.
+- Vocabulary popup.
+- Sentence translation.
+- Save to history.
+
+---
+
+# PART 12 — VOCABULARY MANAGEMENT
+
+## 50. MY VOCABULARY
+
+Create a personal vocabulary library.
+
+When the user clicks Save Word, add the word to the saved vocabulary list.
+
+Store:
+- German word.
+- Article when applicable.
+- Plural when applicable.
+- Arabic meaning.
+- IPA.
+- Arabic-letter pronunciation.
+- Word type.
+- Example.
+- Date saved.
+- Source text.
+
+## 51. VOCABULARY SEARCH
+
+Allow the user to:
+- Search German words.
+- Search Arabic meanings.
+- Filter by word type.
+- Filter by CEFR level.
+- Sort alphabetically.
+- Review saved words.
+- Delete words.
+
+## 52. VOCABULARY REVIEW
+
+Add a revision feature.
+
+Allow the learner to:
+- Review 5 words.
+- Review 10 words.
+- Review 20 words.
+- Review all saved words.
+
+Use flashcards.
+
+Front:
+German word.
+
+Back:
+Arabic meaning, pronunciation, article and example.
+
+Add an optional self-assessment:
+- I know this word.
+- I need more practice.
+- I do not know this word.
+
+## 53. VOCABULARY EXPORT
+
+Allow exporting the user's saved vocabulary as:
+
+- CSV.
+- TXT.
+- Excel-compatible file.
+
+Preserve Arabic characters correctly.
+
+---
+
+# PART 13 — TEXT HISTORY AND PERSONAL LIBRARY
+
+## 54. READING HISTORY
+
+Save generated and imported texts.
+
+Store:
+- Text title.
+- Topic.
+- CEFR level.
+- Text style.
+- Creation date.
+- Original text.
+- Saved audio information when available.
+
+## 55. PERSONAL TEXT LIBRARY
+
+Allow users to:
+- Save favorite passages.
+- Rename passages.
+- Search saved passages.
+- Delete passages.
+- Reopen previously read passages.
+- Continue reading from the last sentence.
+
+## 56. CONTINUE READING
+
+Remember:
+- Last selected text.
+- Last selected sentence.
+- Preferred voice.
+- Preferred speed.
+- Preferred level.
+- Last reading mode.
+
+Allow the user to continue learning from the previous session.
+
+---
+
+# PART 14 — TEXT GENERATOR TO READING INTEGRATION
+
+## 57. DIRECT TRANSFER
+
+After generating a German text, show these actions:
+
+1. Read Text.
+2. Open Reading Interface.
+3. Generate Another Text.
+4. Change Level.
+5. Translate Sentence.
+6. Save Text.
+7. Copy Text.
+
+When the user clicks Read Text:
+
+- Send the complete German passage to the reading engine.
+- Automatically segment it into sentences.
+- Keep the selected voice.
+- Use the default sentence-by-sentence reading behavior.
+- Enable individual word pronunciation.
+- Enable the Arabic dictionary popup.
+
+There must be no need to copy and paste the generated text manually.
+
+## 58. LEVEL CHANGE
+
+Allow the user to regenerate the same topic at another level.
+
+Example:
+
+Topic: Arbeit in Deutschland.
+
+Generate at:
+- A1.
+- A2.
+- B1.
+- B2.
+- C1.
+- C2.
+
+Each generated version must use the correct vocabulary and grammar for that level.
+
+---
+
+# PART 15 — SETTINGS
+
+## 59. GENERAL SETTINGS
+
+Create a settings section containing:
+
+- Interface language.
+- Light mode.
+- Dark mode.
+- Default CEFR level.
+- Default voice.
+- Default speed.
+- Default reading mode.
+- Automatic word-playback resume.
+- Sentence pause duration.
+- Paragraph pause duration.
+- Automatic scrolling.
+- Highlighting style.
+- Audio volume.
+- Listening timer preferences.
+
+## 60. DEFAULT SETTINGS
+
+Set these defaults:
+
+- Interface: Arabic.
+- Reading direction: RTL for Arabic.
+- German direction: LTR.
+- German level: A2.
+- Voice: Female German Standard German.
+- Speed: 1.0x.
+- Reading mode: Continuous sentence-by-sentence.
+- Word pronunciation: On click only.
+- Sentence highlighting: On.
+- Automatic scrolling: On.
+- Automatic resume after word pronunciation: Off.
+- Light mode: On.
+
+Allow the user to change all applicable settings.
+
+Save preferences persistently.
+
+---
+
+# PART 16 — TECHNICAL ARCHITECTURE
+
+## 61. DEVELOPMENT TECHNOLOGY
+
+Build using a modern and maintainable architecture.
+
+Preferred:
+- React.
+- TypeScript.
+- Modern component architecture.
+- Responsive CSS or a suitable styling system.
+- Backend API for AI and TTS requests.
+- Persistent database when required.
+- Proper loading and error states.
+
+Use the technologies best supported by Google AI Studio Build mode.
+
+Do not generate a static HTML-only demonstration.
+
+## 62. AI TEXT GENERATION
+
+Use a suitable Gemini model for generating German texts and vocabulary explanations.
+
+Requirements:
+- Structured prompts.
+- Reliable JSON output where appropriate.
+- German grammar validation where possible.
+- Correct CEFR adaptation.
+- Error handling.
+- Safe text rendering.
+
+The AI must not add Arabic explanations inside the German reading passage itself.
+
+Keep generated German content separate from translations and learning notes.
+
+## 63. TEXT-TO-SPEECH BACKEND
+
+Implement a secure TTS service.
+
+Preferred provider:
+Google Cloud Text-to-Speech.
+
+Use a German female voice from the supported Chirp 3 HD or Neural2 families when available.
+
+Keep credentials secure.
+
+Never expose private API keys in frontend code.
+
+All protected API calls must go through a secure backend.
+
+Provide clear configuration instructions for:
+- Google Cloud project.
+- Text-to-Speech API.
+- Authentication.
+- Required environment variables.
+- Billing requirements when applicable.
+
+Do not assume that an API key or paid service is already configured.
+
+## 64. VOICE PROVIDER FALLBACK
+
+If the preferred Google TTS service is not configured:
+
+- Display a clear setup message.
+- Offer an available fallback German voice.
+- Clearly identify whether it is a system voice or neural voice.
+- Do not pretend the fallback has the same quality.
+- Do not generate fake audio.
+- Do not silently replace the selected voice.
+
+Browser speech synthesis may be used as an optional fallback only.
+
+The selected voice must be checked for actual German language and female voice availability.
+
+## 65. AUDIO CACHING
+
+Implement audio caching to reduce unnecessary API requests.
+
+Use a cache key containing:
+- Text.
+- Selected voice.
+- Language.
+- Speed settings where applicable.
+- Audio configuration.
+
+Reuse valid cached audio.
+
+Invalidate the cache when the voice or relevant audio settings change.
+
+Do not store duplicate audio files unnecessarily.
+
+## 66. LONG TEXT AUDIO PROCESSING
+
+Implement efficient long-text processing.
+
+Use:
+- Sentence segmentation.
+- Chunk preparation.
+- Sequential playback.
+- Audio prefetching.
+- Queue management.
+- Retry logic.
+- Cache reuse.
+- Playback position tracking.
+
+Prepare upcoming sentences while the current sentence is playing when possible.
+
+Ensure the queue never plays sentences out of order.
+
+## 67. SECURITY AND PRIVACY
+
+Requirements:
+- Secure API key storage.
+- Input validation.
+- Safe file upload handling.
+- Secure database access.
+- Avoid exposing user credentials.
+- Avoid storing unnecessary personal information.
+- Proper error reporting.
+- Clear handling of user data deletion.
+
+Do not execute uploaded document content as code.
+
+---
+
+# PART 17 — ACCESSIBILITY AND PERFORMANCE
+
+## 68. ACCESSIBILITY
+
+Make the application accessible.
+
+Include:
+- Readable text.
+- Clear button labels.
+- Keyboard navigation.
+- Visible focus indicators.
+- Appropriate contrast.
+- Responsive controls.
+- Accessible audio buttons.
+- Correct Arabic and German text directions.
+
+## 69. PERFORMANCE
+
+The application must:
+- Load quickly.
+- Avoid unnecessary rerenders.
+- Handle long texts.
+- Avoid memory leaks.
+- Release audio resources when no longer needed.
+- Manage simultaneous requests correctly.
+- Maintain responsive controls during audio playback.
+
+## 70. ERROR HANDLING
+
+Display understandable error messages for:
+- Internet connection failure.
+- Gemini generation failure.
+- TTS failure.
+- Unsupported documents.
+- Invalid API settings.
+- Audio playback failure.
+- Empty text.
+- Unsupported voice.
+
+Provide retry options.
+
+Never leave the application stuck in a permanent loading state.
+
+---
+
+# PART 18 — REQUIRED APPLICATION PAGES
+
+## 71. HOME PAGE
+
+Create a useful dashboard showing:
+
+- Welcome message.
+- Selected German level.
+- Quick Text Generator.
+- Continue Reading.
+- Recently Generated Texts.
+- Saved Vocabulary.
+- Listening Statistics.
+- Quick access to all main features.
+
+## 72. TEXT GENERATOR PAGE
+
+Include:
+
+- Topic input.
+- CEFR selector A1–C2.
+- Text style selector.
+- Text length selector.
+- Generate button.
+- Generated reading passage.
+- Copy button.
+- Save button.
+- Generate Another button.
+- Change Level button.
+- Read Text button.
+
+## 73. READING PAGE
+
+Include:
+
+- German reading text.
+- Sentence-by-sentence highlighting.
+- Individual clickable words.
+- Sentence translation popup.
+- Word dictionary popup.
+- Audio player.
+- Speed selector.
+- Female voice selector.
+- Previous and next sentence.
+- Reading progress.
+
+## 74. VOCABULARY PAGE
+
+Include:
+- Saved German words.
+- Arabic meanings.
+- IPA.
+- Arabic pronunciation.
+- Articles.
+- Plurals.
+- Examples.
+- Search and filters.
+- Flashcards.
+- Export.
+
+## 75. HISTORY PAGE
+
+Include:
+- Generated texts.
+- Imported documents.
+- Recently read passages.
+- Last reading position.
+- Saved passages.
+- Search.
+- Delete options.
+
+## 76. SETTINGS PAGE
+
+Include all general, audio, voice and reading preferences.
+
+---
+
+# PART 19 — SAMPLE USER WORKFLOW
+
+## 77. WORKFLOW 1: GENERATE A TEXT
+
+Step 1:
+User opens Text Generator.
+
+Step 2:
+User enters:
+
+Ausbildung in Deutschland
+
+Step 3:
+User selects B1.
+
+Step 4:
+User clicks Generate.
+
+Step 5:
+The AI generates:
+
+Erman Akay, 30 Jahre, München
+
+„Ich interessiere mich schon seit längerer Zeit für eine Ausbildung in Deutschland. Besonders wichtig ist mir, einen Beruf zu finden, der gute Zukunftsmöglichkeiten bietet. Deshalb informiere ich mich über verschiedene Ausbildungsberufe und ihre Voraussetzungen. Außerdem möchte ich meine Deutschkenntnisse verbessern, damit ich mich im Alltag und bei der Arbeit sicher verständigen kann.“
+
+Step 6:
+User clicks Read Text.
+
+Step 7:
+The reading interface opens with the generated passage.
+
+Step 8:
+The German female voice reads the complete first sentence.
+
+Step 9:
+The complete active sentence is highlighted.
+
+Step 10:
+The next complete sentence is read automatically.
+
+## 78. WORKFLOW 2: CLICK ON A WORD
+
+Text:
+
+„Ich interessiere mich für eine Ausbildung.“
+
+User clicks:
+
+Ausbildung
+
+The application:
+
+1. Pauses current reading.
+2. Pronounces only Ausbildung.
+3. Displays the Arabic translation.
+4. Displays the pronunciation in Arabic letters.
+5. Displays the word type.
+6. Displays the relevant example.
+7. Allows the user to save the word.
+8. Returns to the paused sentence after pronunciation.
+
+It must never read the entire sentence when an individual word is clicked.
+
+## 79. WORKFLOW 3: LONG LISTENING
+
+Step 1:
+User imports a long German text.
+
+Step 2:
+User selects a female German voice.
+
+Step 3:
+User selects 1.0x speed.
+
+Step 4:
+User starts continuous reading.
+
+Step 5:
+The application reads sentence after sentence.
+
+Step 6:
+Each sentence is highlighted.
+
+Step 7:
+Upcoming audio is prepared without interrupting the current playback.
+
+Step 8:
+The user can continue listening for 20, 30, 45 or 60 minutes.
+
+## 80. WORKFLOW 4: DIFFERENT LEVELS
+
+User enters:
+
+Familie und Alltag
+
+Generate at:
+- A1.
+- A2.
+- B1.
+- B2.
+- C1.
+- C2.
+
+The application produces six genuinely level-appropriate German reading passages.
+
+The user can listen to all six using the same selected female voice.
+
+---
+
+# PART 20 — TESTING AND ACCEPTANCE CRITERIA
+
+## 81. FUNCTIONAL TESTING
+
+Test every major function.
+
+The application is not complete until the following tests pass:
+
+### Text Generator
+
+- Topic-only generation works.
+- Arabic topics are understood.
+- German topics are understood.
+- French and English topics are understood.
+- A1 generation works.
+- A2 generation works.
+- B1 generation works.
+- B2 generation works.
+- C1 generation works.
+- C2 generation works.
+- Different writing styles work.
+- Generate Another creates a new text.
+- Change Level produces a different linguistic level.
+
+### Reading
+
+- Play works.
+- Pause works.
+- Resume works.
+- Stop works.
+- Previous sentence works.
+- Next sentence works.
+- Repeat sentence works.
+- Sentence highlighting works.
+- Automatic scrolling works.
+- Long text reading works.
+
+### Word Pronunciation
+
+- Every word is clickable.
+- Only the selected word is pronounced.
+- The current reading pauses correctly.
+- The selected word uses the same female voice.
+- The vocabulary popup works.
+- Arabic translation appears.
+- Arabic-letter pronunciation appears.
+- Save Word works.
+
+### Audio
+
+- Female German voice works.
+- Correct German voice is selected.
+- Natural pronunciation is clear.
+- Speed control works.
+- No overlapping audio.
+- No duplicated sentences.
+- No missing sentences.
+- Long listening sessions remain stable.
+- Audio caching works.
+
+### Documents
+
+- TXT upload works.
+- PDF upload works.
+- DOCX upload works.
+- Paragraph structure is preserved.
+- German characters are preserved.
+- Imported texts can be read using the same engine.
+
+### Storage
+
+- Favorite texts can be saved.
+- Vocabulary can be saved.
+- Reading history works.
+- User preferences persist.
+- Previously saved passages can be reopened.
+
+## 82. FINAL QUALITY REQUIREMENTS
+
+Do not deliver a frontend that only looks functional.
+
+Do not use fake playback buttons.
+
+Do not use mock AI-generated results as the final implementation.
+
+Do not use placeholder audio pretending to be natural German speech.
+
+Do not use word-by-word playback as the default reading mode.
+
+Do not highlight individual words during normal sentence reading.
+
+Do not expose private API keys.
+
+Do not generate translations inside the original German reading text.
+
+Do not remove essential functionality to simplify development.
+
+If a service requires an API key, implement its integration and explain exactly how to configure it.
+
+If a feature is technically unavailable in the configured environment, explain the limitation and provide the best working alternative.
+
+---
+
+# PART 21 — DEVELOPMENT PRIORITIES
+
+Implement the application in this order:
+
+PRIORITY 1:
+Functional German Text Generator with A1–C2.
+
+PRIORITY 2:
+High-quality natural German female Text-to-Speech.
+
+PRIORITY 3:
+Sentence-by-sentence continuous reading with accurate sentence highlighting.
+
+PRIORITY 4:
+Individual word pronunciation only when clicked.
+
+PRIORITY 5:
+Arabic dictionary, contextual translation and pronunciation.
+
+PRIORITY 6:
+Long listening and concentration mode.
+
+PRIORITY 7:
+Document upload and reading.
+
+PRIORITY 8:
+Vocabulary management and learning history.
+
+PRIORITY 9:
+Settings, accessibility, optimization and final testing.
+
+Do not sacrifice the quality of the main reading and listening engine for decorative features.
+
+---
+
+# FINAL INSTRUCTION TO GOOGLE AI STUDIO
+
+Build the complete application now.
+
+Do not respond with a tutorial explaining how to build it.
+
+Do not simply display a plan or a list of suggested features.
+
+Actually implement the working application with all the components, interactions, pages and backend integrations described above.
+
+Start by building the complete core experience, then implement the remaining features.
+
+Maintain a clean, professional and consistent design throughout.
+
+The most important user experience is:
+
+A learner enters any topic, chooses a German level from A1 to C2, generates an original textbook-style German passage, and presses Play.
+
+A natural German female voice reads the text sentence by sentence, with the complete current sentence highlighted.
+
+Whenever the learner clicks an individual word, the application pauses and pronounces only that word using the same voice, then shows its Arabic meaning and pronunciation.
+
+The application must also support long German listening sessions for reading, learning and concentration.
+
+The final result should feel like a professional German language learning studio, not a basic text reader.

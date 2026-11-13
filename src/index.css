@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-arabic: 'Cairo', system-ui, -apple-system, sans-serif;
+    --font-german: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-arabic);
+    direction: rtl;
+  }
+}
+
+.font-german {
+  font-family: var(--font-german);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.font-arabic {
+  font-family: var(--font-arabic);
+  direction: rtl;
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Pulse animation for active sentence highlight */
+@keyframes sentenceGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4), 0 2px 8px rgba(59, 130, 246, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.6), 0 4px 12px rgba(37, 99, 235, 0.25);
+  }
+}
+
+.active-sentence-glow {
+  animation: sentenceGlow 2.5s infinite ease-in-out;
+}

@@ -1,0 +1,963 @@
+# MASTER PROMPT — SHARED CLOUD AUDIO LIBRARY
+## Google Drive + Firebase + Puter.js + ElevenLabs + Smart Audio Cache
+
+Act as a senior full-stack software engineer, cloud architect, Google Cloud integration specialist, and audio systems developer.
+
+Your task is to upgrade my EXISTING German Learning Application by implementing a complete, production-oriented, shared Text-to-Speech (TTS) system.
+
+This is an existing application. Do not rebuild it from scratch.
+
+Do not remove, damage, rename, or redesign existing features. Preserve the current application structure, UI, design system, lessons, vocabulary, exercises, tests, user accounts, progress, and database.
+
+First inspect the complete existing project, understand its architecture, identify the current framework, database, authentication system, and deployment environment, and then implement the integration.
+
+Do not just generate example code. Implement the actual working system.
+
+---
+
+# PART 1 — TARGET ARCHITECTURE
+
+Build the following architecture:
+
+### Frontend
+- Existing application frontend.
+- React or the framework already used.
+- Audio player and playback controls.
+- Puter.js integration.
+- IndexedDB local audio cache.
+- Browser SpeechSynthesis fallback.
+
+### Backend
+- Secure Node.js backend using the existing full-stack environment.
+- Google Drive API integration.
+- Audio generation coordination.
+- Audio upload and download endpoints.
+- Authentication and authorization.
+- Request deduplication and error handling.
+
+### Cloud database
+Use the existing database if it is suitable.
+
+If the project has no suitable persistent database, use Firebase Firestore. Ask for approval through Google AI Studio's Firebase setup flow when required.
+
+Firestore will store audio metadata and generation status, NOT the actual MP3 files.
+
+### Cloud audio storage
+Use my Google Drive account as the centralized audio library.
+
+Create this root folder automatically after successful Google Drive authorization:
+
+GermanLearningAudioLibrary
+
+Inside it, organize files using:
+
+GermanLearningAudioLibrary/
+    de-DE/
+        elevenlabs/
+            multilingual-v2/
+                male/
+                female/
+        metadata/
+        backups/
+
+The actual organization may be optimized as necessary.
+
+### Primary audio generation
+Puter.js + ElevenLabs.
+
+Official documentation:
+https://docs.puter.com/AI/txt2speech/
+
+Use the official Puter.js SDK.
+
+Example:
+
+```javascript
+const audio = await puter.ai.txt2speech(text, {
+    provider: "elevenlabs",
+    model: "eleven_multilingual_v2",
+    voice: "21m00Tcm4TlvDq8ikWAM",
+    output_format: "mp3_44100_128"
+});
+
+audio.play();
+```
+
+Use only verified and currently supported SDK options.
+
+Do not hardcode an unverified voice ID. Implement voice discovery and allow an administrator to select a suitable German voice.
+
+Puter uses a User-Pays model. Make it clear that new generation requests may consume the requesting user's Puter allowance or require an upgrade.
+
+---
+
+# PART 2 — GOOGLE DRIVE AUTOMATIC INTEGRATION
+
+I want the application to connect to MY OWN Google Drive account and use it as the shared audio storage account.
+
+Official documentation:
+
+https://developers.google.com/workspace/drive/api/guides/about-files
+
+https://developers.google.com/workspace/drive/api/guides/api-specific-auth
+
+## A. Google Drive OAuth
+
+Implement secure Google OAuth 2.0 authorization.
+
+Use the minimum required scope:
+
+https://www.googleapis.com/auth/drive.file
+
+Do not request unrestricted access to my entire Google Drive unless absolutely necessary.
+
+The application must:
+
+1. Display a Google Drive connection button in the administrator settings.
+2. Start Google OAuth authorization.
+3. Request access to create and manage files belonging to this application.
+4. Obtain the authorization code.
+5. Exchange it for tokens on the backend.
+6. securely preserve the refresh token using encrypted server-side storage.
+7. Automatically refresh expired access tokens.
+8. Create the root audio folder if it does not exist.
+9. Save the root Google Drive folder ID.
+10. Verify that uploading and downloading audio files work.
+
+Use a secure OAuth state parameter and proper callback validation.
+
+Never expose refresh tokens, client secrets, or access tokens to browser JavaScript.
+
+## B. Personal Google Account compatibility
+
+My default setup is a personal Gmail / My Drive account.
+
+Use OAuth on behalf of the human Google account.
+
+Do not use a Service Account as the default storage owner for personal My Drive.
+
+If the connected account is Google Workspace and has a suitable Shared Drive, optionally support Service Account authentication for that Shared Drive.
+
+Do not assume that a personal Gmail account can create a Shared Drive.
+
+## C. Required environment secrets
+
+Prepare the backend to use these server-side secrets:
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_OAUTH_REDIRECT_URI=
+TOKEN_ENCRYPTION_KEY=
+APP_ADMIN_EMAIL=
+```
+
+Requirements:
+
+- Use Google AI Studio's Secrets management when available.
+- Never put credentials in frontend code.
+- Never expose secrets in VITE environment variables.
+- Never commit credentials to GitHub.
+- Never print token values in logs.
+- If a secret is missing, display an administrator setup instruction.
+- Never ask me to paste private credentials into the chat.
+
+Generate the OAuth callback URL based on the actual application environment and tell me exactly where to register it in Google Cloud Console.
+
+If you cannot automatically configure Google Cloud permissions, provide a clear step-by-step setup screen.
+
+Do not pretend OAuth has been completed before actual authorization succeeds.
+
+## D. Google Drive file operations
+
+Implement:
+
+- Create audio folder.
+- Search existing audio metadata.
+- Upload generated MP3 audio.
+- Download cached MP3 audio.
+- Read file metadata.
+- Delete obsolete audio.
+- Calculate stored audio size.
+- Check Drive connection status.
+- Handle API errors and quota limits.
+
+Store actual audio files privately in Google Drive.
+
+Do not automatically make all audio files public.
+
+Do not expose Google Drive file IDs or authorization tokens as security credentials.
+
+Serve audio through secure backend endpoints.
+
+Use the official Google Drive API v3 and the official Google API Node.js library.
+
+---
+
+# PART 3 — FIREBASE FIRESTORE METADATA DATABASE
+
+Use the existing database if possible. Otherwise, configure Firebase Firestore through the Google AI Studio integration, with my approval.
+
+Create a collection:
+
+ttsAudioCache
+
+Each cache document should contain:
+
+```javascript
+{
+    audioHash: "",
+    language: "de-DE",
+    originalText: "",
+    normalizedText: "",
+
+    provider: "elevenlabs",
+    model: "eleven_multilingual_v2",
+    voiceId: "",
+    audioFormat: "mp3",
+
+    driveFileId: "",
+    driveFolderId: "",
+
+    status: "ready",
+
+    fileSize: 0,
+    duration: 0,
+
+    createdAt: null,
+    updatedAt: null,
+    lastAccessedAt: null,
+
+    cacheVersion: 1
+}
+```
+
+Also support generation states:
+
+- generating
+- ready
+- failed
+- expired
+
+Never store Google OAuth refresh tokens in plaintext Firestore documents.
+
+Use strict Firestore security rules.
+
+Only authorized backend operations may create, update, or delete shared audio metadata.
+
+All normal learners may read approved audio entries through the application backend.
+
+---
+
+# PART 4 — INTELLIGENT SHARED AUDIO CACHE
+
+This is one of the most important requirements.
+
+I want ONE centralized audio library that all learners can reuse.
+
+Example:
+
+Learner A requests the German word "Haus".
+
+If the audio does not exist:
+
+1. The application checks local IndexedDB.
+2. It checks the centralized Firestore audio index.
+3. It checks whether the corresponding Google Drive file exists.
+4. If not found, it starts a new audio generation process.
+5. It generates the audio using Puter.js + ElevenLabs.
+6. It uploads the MP3 to Google Drive.
+7. It saves the file metadata in Firestore.
+8. It plays the audio.
+
+Later, Learner B requests "Haus".
+
+The application must:
+
+1. Check the local cache.
+2. Check the shared Firestore audio index.
+3. Find the existing Drive file.
+4. Download or stream the existing audio.
+5. Play it immediately.
+
+It must NOT generate the same audio again.
+
+This shared cache must work across different users, browsers, computers, and devices.
+
+## A. Audio hash generation
+
+Generate a stable SHA-256 key using:
+
+- Normalized text.
+- Language.
+- Provider.
+- Model.
+- Voice ID.
+- Audio format.
+- Cache version.
+- Any pronunciation-affecting generation settings.
+
+Use Unicode NFC normalization.
+
+Trim unnecessary whitespace and normalize repeated spaces.
+
+Preserve capitalization and punctuation when they can affect pronunciation.
+
+Do not use the original text as the filename.
+
+Example:
+
+```javascript
+const audioKey = sha256(
+    JSON.stringify({
+        text: normalizedText,
+        language: "de-DE",
+        provider: "elevenlabs",
+        model: "eleven_multilingual_v2",
+        voiceId: voiceId,
+        format: "mp3",
+        version: 1
+    })
+);
+```
+
+Do not include playback-only speed in the cache key.
+
+If speaking speed is changed using HTMLAudioElement.playbackRate, reuse the same audio file.
+
+If speed changes the actual generated audio, include it in the cache key.
+
+## B. Cache lookup priority
+
+Use this exact priority:
+
+1. Browser IndexedDB.
+2. Shared Firestore audio index.
+3. Private Google Drive audio file through backend.
+4. Generate new audio using Puter.js + ElevenLabs.
+5. Browser SpeechSynthesis fallback if generation fails.
+
+After a successful shared audio download, save a local copy in IndexedDB.
+
+## C. Persistent local cache
+
+Use IndexedDB for storing MP3 audio blobs.
+
+Requirements:
+
+- Survive application refresh.
+- Survive browser restart.
+- Work across lesson navigation.
+- Store audio blobs efficiently.
+- Avoid storing large audio files in localStorage.
+- Track local cache size.
+- Allow clearing the cache.
+- Handle storage quota errors.
+- Allow deleting individual entries.
+
+---
+
+# PART 5 — PREVENT DUPLICATE GENERATION
+
+Implement a distributed generation locking mechanism using Firestore transactions.
+
+This is essential because several learners may request the same word at the same time.
+
+Example:
+
+Learner A requests "arbeiten".
+
+Learner B requests "arbeiten" at exactly the same time.
+
+The application must generate the audio only once.
+
+Use this workflow:
+
+1. Check if a ready cache entry exists.
+2. If not, attempt to acquire a generation lock.
+3. Only one request may successfully acquire that lock.
+4. The other requests must wait or poll for the result.
+5. The successful generator uploads the file to Drive.
+6. The Firestore entry is changed to ready.
+7. All waiting users retrieve the same shared audio.
+
+The lock must include:
+
+- Generation key.
+- Lock owner.
+- Created timestamp.
+- Expiration timestamp.
+- Generation status.
+
+Implement automatic recovery from abandoned locks.
+
+Never leave a cache entry permanently stuck in generating status.
+
+Do not generate duplicate files when an existing upload has already succeeded.
+
+Use transactions and proper error recovery.
+
+---
+
+# PART 6 — PUTER.JS + ELEVENLABS AUDIO GENERATION
+
+Use ElevenLabs as the primary provider.
+
+Default model:
+
+eleven_multilingual_v2
+
+Default audio format:
+
+mp3_44100_128
+
+Default language:
+
+German (de-DE)
+
+Allow the administrator to configure the voice ID.
+
+Requirements:
+
+- German vocabulary pronunciation.
+- Individual words.
+- Complete sentences.
+- Dialogues.
+- Paragraphs.
+- Reading exercises.
+- Grammar explanations.
+- Listening exercises.
+
+For long texts, divide them into smaller sentence-based chunks.
+
+Respect the currently documented Puter text-size limit of 3,000 characters per request.
+
+Generate and cache individual chunks and play them sequentially when necessary.
+
+Use the official SDK and verify its current return format before implementation.
+
+Puter's TTS call returns an HTMLAudioElement.
+
+Inspect the returned audio element and determine whether its source can safely be converted into a Blob.
+
+If the source is a browser-accessible Blob URL, retrieve the audio bytes and upload them to the backend.
+
+If the source is remote and cannot legally or technically be fetched due to CORS restrictions:
+
+- Do not bypass browser security.
+- Do not invent a downloadable MP3 URL.
+- Play the generated audio locally if possible.
+- Do not create a false shared-cache entry.
+- Clearly report that cloud caching could not be completed.
+
+Never save failed, empty, incomplete, or invalid audio files.
+
+Before generating new audio, obtain the user's consent when Puter usage may consume their allowance.
+
+Display a clear notice:
+
+"Generating new audio may use your Puter account allowance or require an upgrade. Existing cached audio is free to reuse through this application."
+
+Only generate after an actual user action or an authorized administrator action.
+
+---
+
+# PART 7 — APPROVED SHARED CONTENT ONLY
+
+The shared Google Drive library is intended for common educational content.
+
+Examples:
+
+- Vocabulary inside lessons.
+- German example sentences.
+- Grammar examples.
+- Course dialogues.
+- Administrator-approved reading material.
+
+Do not automatically upload arbitrary private text entered by learners to the shared audio library.
+
+For custom learner text:
+
+- Generate and play it locally.
+- Use local IndexedDB only when appropriate.
+- Do not upload it to the shared Drive library by default.
+
+Add an administrator-controlled option to approve additional text for shared audio caching.
+
+---
+
+# PART 8 — FREE FALLBACK AUDIO
+
+If Puter or ElevenLabs fails, automatically switch to the browser's Web Speech API.
+
+Use:
+
+```javascript
+const utterance = new SpeechSynthesisUtterance(text);
+
+utterance.lang = "de-DE";
+utterance.rate = speed;
+
+speechSynthesis.speak(utterance);
+```
+
+Requirements:
+
+- Detect browser support.
+- Detect available German voices.
+- Prefer a suitable German native-language voice.
+- Allow voice selection where available.
+- Support adjustable playback speed.
+- Handle asynchronous voice loading.
+- Support pause, resume, and stop.
+- Display the active audio provider.
+
+Display the following statuses:
+
+- Shared Cloud Audio
+- Local Cached Audio
+- Newly Generated ElevenLabs Audio
+- Free Browser Voice
+
+IMPORTANT:
+
+Browser SpeechSynthesis does not normally provide a downloadable audio Blob.
+
+Therefore, use it only as a local playback fallback.
+
+Do not pretend browser-generated speech has been saved to Google Drive.
+
+Do not upload fake audio files or empty placeholders.
+
+---
+
+# PART 9 — AUDIO PLAYER INTERFACE
+
+Integrate the player into the existing application.
+
+Do not redesign the existing interface.
+
+Add a small speaker icon next to:
+
+- Every German vocabulary word.
+- German example sentences.
+- Grammar examples.
+- Reading passages.
+- Dialogues.
+- Listening exercises.
+
+Required controls:
+
+- Play.
+- Pause.
+- Resume.
+- Stop.
+- Replay.
+- Playback speed.
+
+Playback speeds:
+
+0.5x
+0.75x
+1.0x
+1.25x
+1.5x
+2.0x
+
+Add male/female voice selection where suitable voices are available.
+
+Use one default shared voice for the main course to maximize cache reuse.
+
+Different voice IDs must produce different cache entries.
+
+Keep the interface responsive on mobile and desktop.
+
+Ensure that playing a new item stops the previous audio when appropriate.
+
+Clean up temporary object URLs after use.
+
+---
+
+# PART 10 — AUDIO STORAGE MANAGEMENT DASHBOARD
+
+Create a new section in the existing administrator settings.
+
+Title:
+
+Audio Library Management
+
+Display:
+
+1. Google Drive connection status.
+2. Google account connection status.
+3. Root folder name.
+4. Number of shared audio files.
+5. Total cloud audio storage.
+6. Total locally cached audio (where available).
+7. Number of ElevenLabs generations.
+8. Number of shared-cache hits.
+9. Number of local-cache hits.
+10. Number of fallback voice uses.
+11. Number of failed generations.
+12. Estimated cache savings.
+
+Add administrative actions:
+
+- Connect Google Drive.
+- Disconnect Google Drive.
+- Test Google Drive connection.
+- Verify Firestore connection.
+- Test ElevenLabs generation.
+- Browse audio library.
+- Search audio by word or sentence.
+- Delete one audio file.
+- Clear selected cache entries.
+- Remove expired entries.
+- Rebuild audio metadata index.
+- Export audio metadata as JSON.
+- Check storage availability.
+
+Require an administrator confirmation before destructive actions.
+
+Never delete files outside the application's own audio folder.
+
+---
+
+# PART 11 — BACKEND API ENDPOINTS
+
+Implement secure endpoints using the existing backend framework.
+
+Suggested endpoints:
+
+GET /api/admin/drive/status
+
+GET /api/admin/drive/connect
+
+GET /api/admin/drive/callback
+
+POST /api/admin/drive/disconnect
+
+POST /api/admin/drive/test
+
+POST /api/tts/claim
+
+GET /api/tts/audio/:hash
+
+POST /api/tts/upload
+
+GET /api/tts/status/:hash
+
+POST /api/tts/release-lock
+
+GET /api/admin/tts/statistics
+
+GET /api/admin/tts/files
+
+DELETE /api/admin/tts/files/:hash
+
+Adapt the names and structure to the existing architecture.
+
+Requirements:
+
+- Validate every request.
+- Authenticate protected actions.
+- Verify administrator permissions.
+- Enforce upload size limits.
+- Verify MIME types.
+- Verify audio file signatures.
+- Prevent path traversal.
+- Apply rate limiting.
+- Prevent unauthorized deletion.
+- Prevent duplicate uploads.
+- Handle timeout and network errors.
+- Never expose Google access tokens to the frontend.
+
+Use secure HTTP headers and appropriate CORS rules.
+
+---
+
+# PART 12 — GOOGLE DRIVE PERFORMANCE
+
+Google Drive is the requested centralized storage solution.
+
+Optimize it for educational audio files.
+
+Requirements:
+
+- Store audio once.
+- Reuse the same file for all authorized learners.
+- Stream or proxy files through the backend.
+- Avoid downloading an audio file repeatedly.
+- Use browser IndexedDB.
+- Use appropriate HTTP caching.
+- Store file IDs in Firestore.
+- Avoid searching the entire Drive on every playback.
+- Use the Firestore index as the primary lookup source.
+- Handle Google Drive API rate limits and quota errors.
+- Retry transient failures with bounded exponential backoff.
+
+Do not treat Google Drive as an unlimited CDN.
+
+Keep the Drive files private by default.
+
+If traffic increases beyond practical Drive API limits, document Google Cloud Storage as an optional future migration target without changing the current requested Google Drive implementation.
+
+---
+
+# PART 13 — SECURITY AND PRIVACY
+
+Security is mandatory.
+
+1. Google OAuth secrets must remain server-side.
+2. Refresh tokens must be encrypted at rest.
+3. No secret values in frontend bundles.
+4. No secret values in console logs.
+5. Only the application administrator can manage Drive.
+6. Learners cannot delete shared files.
+7. Learners cannot overwrite existing shared audio.
+8. Learners cannot upload private text into the shared library without authorization.
+9. Validate all audio uploads.
+10. Protect OAuth callbacks against CSRF.
+11. Use secure cookies where applicable.
+12. Validate Firebase authentication tokens.
+13. Apply strict database security rules.
+14. Do not make the entire Google Drive public.
+15. Provide a safe disconnect procedure.
+
+Respect Google, Puter, and ElevenLabs usage rules and commercial licensing requirements.
+
+---
+
+# PART 14 — AUTOMATIC SETUP WIZARD
+
+Create a guided setup page for the administrator.
+
+Title:
+
+Configure Shared Audio Cloud Storage
+
+Show these steps:
+
+STEP 1 — Firebase
+
+- Detect whether Firebase is already configured.
+- Reuse the existing Firebase project if possible.
+- If no suitable database exists, offer to enable Firebase through AI Studio.
+- Configure Firestore metadata storage.
+- Configure authentication and permissions without breaking existing user accounts.
+
+STEP 2 — Google Cloud
+
+- Provide the official Google Cloud Console link.
+- Identify the Google Cloud project.
+- Explain how to enable Google Drive API.
+- Prepare the OAuth configuration.
+- Display the exact OAuth redirect URI.
+- Explain where to register it.
+- Explain which scopes are needed.
+- Do not request unnecessary Google Drive permissions.
+
+STEP 3 — Secrets
+
+Show the exact secret names that must be entered into Google AI Studio's Secrets panel:
+
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+TOKEN_ENCRYPTION_KEY
+APP_ADMIN_EMAIL
+
+The redirect URI should be configured according to the actual deployment environment.
+
+STEP 4 — Connect Google Drive
+
+- Display a Connect Google Drive button.
+- Start the OAuth flow.
+- Wait for successful authorization.
+- Create the application folder.
+- Test upload and download permissions.
+
+STEP 5 — Test audio generation
+
+- Test Puter.js availability.
+- Authenticate the administrator with Puter when needed.
+- Test ElevenLabs through Puter.
+- Test audio Blob extraction.
+- Upload a test MP3.
+- Retrieve and play the same file from Drive.
+- Delete only the temporary test file.
+
+Use Puter's documented test mode when appropriate to verify basic integration without consuming normal generation usage.
+
+STEP 6 — Complete
+
+Display:
+
+"Your shared German audio library is configured."
+
+Show the actual connection status of every service.
+
+Do not mark any setup step complete until it has genuinely succeeded.
+
+---
+
+# PART 15 — TESTING AND VERIFICATION
+
+Perform actual code-level and application-level tests.
+
+Test all scenarios:
+
+TEST 1:
+Generate a new German word using ElevenLabs through Puter.js.
+
+TEST 2:
+Verify that the audio plays correctly.
+
+TEST 3:
+Verify that the generated audio can be converted into a valid MP3 Blob.
+
+TEST 4:
+Verify that the MP3 is uploaded to Google Drive.
+
+TEST 5:
+Verify that Firestore stores the corresponding file metadata.
+
+TEST 6:
+Request the same word again and confirm a cache hit.
+
+TEST 7:
+Refresh the application and test persistent local caching.
+
+TEST 8:
+Open the same lesson in another browser and verify that it retrieves the shared Drive audio.
+
+TEST 9:
+Test two simultaneous requests for the same word and verify that only one shared generation occurs.
+
+TEST 10:
+Disconnect Google Drive and verify that the error is handled.
+
+TEST 11:
+Simulate a Puter generation failure and verify browser SpeechSynthesis fallback.
+
+TEST 12:
+Test words containing German characters:
+
+ä
+ö
+ü
+ß
+
+TEST 13:
+Test long paragraphs and sentence-based chunking.
+
+TEST 14:
+Change voice ID and verify a separate audio cache entry.
+
+TEST 15:
+Change playback speed and confirm that the same cached MP3 is reused when speed is applied at playback time.
+
+TEST 16:
+Test authentication and administrator permissions.
+
+TEST 17:
+Test mobile and desktop layouts.
+
+TEST 18:
+Test invalid audio uploads and unauthorized delete requests.
+
+Never report a test as passed if it was not actually executed.
+
+---
+
+# PART 16 — FAILURE RECOVERY
+
+Implement reliable recovery.
+
+If Google Drive is disconnected:
+
+- Do not delete the existing Firestore metadata.
+- Display a clear administrator warning.
+- Allow local cached audio to keep playing.
+- Use available fallback playback.
+
+If Firestore is temporarily unavailable:
+
+- Continue playing local cached audio.
+- Do not assume the shared cache is empty.
+- Do not generate duplicate audio without checking recovery status.
+
+If Puter fails:
+
+- Use the browser voice.
+- Preserve the user's lesson and application state.
+- Show a clear status indicator.
+
+If an upload fails:
+
+- Do not mark the file as ready.
+- Do not create invalid metadata.
+- Release the generation lock.
+- Allow a controlled retry.
+
+If a Drive file is deleted externally:
+
+- Detect the missing file.
+- Mark the metadata as missing.
+- Allow regeneration after checking authorization and availability.
+
+---
+
+# PART 17 — FINAL IMPLEMENTATION REQUIREMENTS
+
+Work directly inside the existing project.
+
+Do not stop after creating a design or architecture plan.
+
+Implement all feasible components and verify them.
+
+Do not replace existing functionality.
+
+Do not create a second, unnecessary application.
+
+Do not install unnecessary libraries.
+
+Use official and maintained SDKs.
+
+Before adding a new database or authentication provider, inspect the existing application and reuse what is already working.
+
+When Google AI Studio asks for permission to enable Firebase, explain why it is needed and ask for the required approval.
+
+When Google Cloud credentials or OAuth consent are required, prepare the integration and guide me through the exact manual steps.
+
+Do not claim that you have connected my personal Google account until authorization actually succeeds.
+
+Do not invent project IDs, OAuth credentials, Drive folder IDs, API keys, or successful deployment results.
+
+If a task is blocked by a permission or credential, complete all other implementation work and show the exact remaining action.
+
+## FINAL REPORT
+
+When finished, provide a report containing:
+
+1. Existing application architecture discovered.
+2. Files created.
+3. Files modified.
+4. Google Drive integration status.
+5. OAuth configuration status.
+6. Firebase / Firestore status.
+7. Puter.js integration status.
+8. ElevenLabs integration status.
+9. Shared audio cache status.
+10. IndexedDB cache status.
+11. Browser fallback status.
+12. Tests actually performed.
+13. Remaining manual setup steps.
+14. Any known limitations.
+
+The ultimate objective:
+
+ONE SHARED GERMAN AUDIO LIBRARY FOR ALL LEARNERS.
+
+A German word or sentence should be generated only once for the same language, voice, model, and audio settings. Its MP3 should be stored in my Google Drive and indexed in Firestore. Every learner should reuse that same audio without generating it again.
+
+Prioritize reliability, low operating costs, security, German pronunciation quality, and preservation of the existing application.

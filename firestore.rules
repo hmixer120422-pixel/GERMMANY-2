@@ -1,0 +1,321 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 1: Global Default-Deny Catch-All Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================
+    // Global Primitives
+    // =========================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'hmixer1204.2.2@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // =========================================================
+    // Validation Blueprints (Anti-Update-Gap)
+    // =========================================================
+    function isValidTtsAudioCacheEntry(data, docId) {
+      return data.keys().hasAll([
+          'audioHash',
+          'language',
+          'originalText',
+          'normalizedText',
+          'provider',
+          'model',
+          'voiceId',
+          'audioFormat',
+          'driveFileId',
+          'driveFolderId',
+          'status',
+          'fileSize',
+          'duration',
+          'cacheVersion',
+          'createdAt',
+          'updatedAt',
+          'lastAccessedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'audioHash',
+          'language',
+          'originalText',
+          'normalizedText',
+          'provider',
+          'model',
+          'voiceId',
+          'voiceGender',
+          'audioFormat',
+          'driveFileId',
+          'driveFolderId',
+          'status',
+          'fileSize',
+          'duration',
+          'lockOwner',
+          'lockExpiresAt',
+          'approvedForShared',
+          'cacheVersion',
+          'createdAt',
+          'updatedAt',
+          'lastAccessedAt'
+        ]) &&
+        data.audioHash is string && data.audioHash.size() >= 16 && data.audioHash.size() <= 128 &&
+        data.audioHash == docId &&
+        data.language is string && data.language.size() >= 2 && data.language.size() <= 16 &&
+        data.originalText is string && data.originalText.size() >= 1 && data.originalText.size() <= 4000 &&
+        data.normalizedText is string && data.normalizedText.size() >= 1 && data.normalizedText.size() <= 4000 &&
+        data.provider is string && data.provider.size() >= 2 && data.provider.size() <= 32 && data.provider == 'elevenlabs' &&
+        data.model is string && data.model.size() >= 3 && data.model.size() <= 64 &&
+        data.voiceId is string && data.voiceId.size() >= 2 && data.voiceId.size() <= 64 &&
+        data.audioFormat is string && data.audioFormat.size() >= 2 && data.audioFormat.size() <= 16 && data.audioFormat == 'mp3' &&
+        data.driveFileId is string && data.driveFileId.size() <= 256 &&
+        data.driveFolderId is string && data.driveFolderId.size() <= 256 &&
+        data.status is string && data.status.size() >= 3 && data.status.size() <= 24 &&
+        data.status in ['generating', 'ready', 'failed', 'expired', 'missing'] &&
+        data.fileSize is int && data.fileSize >= 0 && data.fileSize <= 20000000 &&
+        data.duration is number && data.duration >= 0 && data.duration <= 3600 &&
+        data.cacheVersion is int && data.cacheVersion >= 1 && data.cacheVersion <= 100 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.lastAccessedAt is timestamp &&
+        (!('voiceGender' in data) || (data.voiceGender is string && data.voiceGender.size() <= 16 && data.voiceGender in ['female', 'male'])) &&
+        (!('lockOwner' in data) || (data.lockOwner is string && data.lockOwner.size() <= 128)) &&
+        (!('lockExpiresAt' in data) || (data.lockExpiresAt is int && data.lockExpiresAt >= 0)) &&
+        (!('approvedForShared' in data) || (data.approvedForShared is bool));
+    }
+
+    function isValidTtsStatistics(data, docId) {
+      return data.keys().hasAll([
+          'statId',
+          'elevenLabsGenerationsCount',
+          'sharedCacheHitsCount',
+          'localCacheHitsCount',
+          'fallbackVoiceUsesCount',
+          'failedGenerationsCount',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'statId',
+          'elevenLabsGenerationsCount',
+          'sharedCacheHitsCount',
+          'localCacheHitsCount',
+          'fallbackVoiceUsesCount',
+          'failedGenerationsCount',
+          'totalCloudAudioBytes',
+          'sharedAudioFilesCount',
+          'updatedAt'
+        ]) &&
+        data.statId is string && data.statId.size() >= 1 && data.statId.size() <= 64 && data.statId == docId &&
+        data.elevenLabsGenerationsCount is int && data.elevenLabsGenerationsCount >= 0 &&
+        data.sharedCacheHitsCount is int && data.sharedCacheHitsCount >= 0 &&
+        data.localCacheHitsCount is int && data.localCacheHitsCount >= 0 &&
+        data.fallbackVoiceUsesCount is int && data.fallbackVoiceUsesCount >= 0 &&
+        data.failedGenerationsCount is int && data.failedGenerationsCount >= 0 &&
+        (!('totalCloudAudioBytes' in data) || (data.totalCloudAudioBytes is int && data.totalCloudAudioBytes >= 0)) &&
+        (!('sharedAudioFilesCount' in data) || (data.sharedAudioFilesCount is int && data.sharedAudioFilesCount >= 0)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTtsLibraryConfig(data, docId) {
+      return data.keys().hasAll([
+          'configId',
+          'defaultModel',
+          'defaultFemaleVoiceId',
+          'defaultMaleVoiceId',
+          'defaultCourseVoiceId',
+          'rootFolderName',
+          'driveConnected',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'configId',
+          'defaultModel',
+          'defaultFemaleVoiceId',
+          'defaultMaleVoiceId',
+          'defaultCourseVoiceId',
+          'rootFolderName',
+          'driveConnected',
+          'updatedAt'
+        ]) &&
+        data.configId is string && data.configId.size() >= 1 && data.configId.size() <= 64 && data.configId == docId &&
+        data.defaultModel is string && data.defaultModel.size() >= 3 && data.defaultModel.size() <= 64 &&
+        data.defaultFemaleVoiceId is string && data.defaultFemaleVoiceId.size() >= 2 && data.defaultFemaleVoiceId.size() <= 64 &&
+        data.defaultMaleVoiceId is string && data.defaultMaleVoiceId.size() >= 2 && data.defaultMaleVoiceId.size() <= 64 &&
+        data.defaultCourseVoiceId is string && data.defaultCourseVoiceId.size() >= 2 && data.defaultCourseVoiceId.size() <= 64 &&
+        data.rootFolderName is string && data.rootFolderName.size() >= 1 && data.rootFolderName.size() <= 128 &&
+        data.driveConnected is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminUser(data, docId) {
+      return data.keys().hasAll(['uid', 'role', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid == docId &&
+        data.role is string && data.role.size() == 5 && data.role == 'admin' &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data, docId) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'role', 'preferredVoiceId', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid == docId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.role is string && data.role.size() >= 5 && data.role.size() <= 16 && data.role in ['learner', 'admin'] &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+        (!('preferredVoiceId' in data) || (data.preferredVoiceId is string && data.preferredVoiceId.size() <= 64)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // =========================================================
+    // Collection: ttsAudioCache
+    // =========================================================
+    match /ttsAudioCache/{audioHash} {
+      // Learners can inspect shared audio metadata; list enforces status invariant (no get() inside list)
+      allow get: if isValidId(audioHash) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.status in ['generating', 'ready', 'failed', 'expired', 'missing'];
+
+      // Admin can create any valid entry; verified learner can only acquire an initial generating lock for unshared/temp lock
+      allow create: if isValidId(audioHash) && isSignedIn() &&
+        isValidTtsAudioCacheEntry(incoming(), audioHash) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            incoming().status == 'generating' &&
+            'lockOwner' in incoming() && incoming().lockOwner == request.auth.uid &&
+            (!('approvedForShared' in incoming()) || incoming().approvedForShared == false)
+          )
+        );
+
+      // Action-based update with terminal lock on ready entries for non-admins
+      allow update: if isValidId(audioHash) && isSignedIn() &&
+        isValidTtsAudioCacheEntry(incoming(), audioHash) &&
+        incoming().audioHash == existing().audioHash &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            // Action: Lock owner updates failed/expired lock status (never overwrites a ready Drive file)
+            existing().status != 'ready' &&
+            'lockOwner' in existing() && existing().lockOwner == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'lastAccessedAt']) &&
+            incoming().status in ['failed', 'expired']
+          )
+        );
+
+      allow delete: if isValidId(audioHash) && isAdmin();
+    }
+
+    // =========================================================
+    // Collection: ttsStatistics
+    // =========================================================
+    match /ttsStatistics/{statId} {
+      allow get: if isValidId(statId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.statId is string;
+      allow create: if isValidId(statId) && isAdmin() &&
+        isValidTtsStatistics(incoming(), statId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(statId) && isAdmin() &&
+        isValidTtsStatistics(incoming(), statId) &&
+        incoming().statId == existing().statId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'elevenLabsGenerationsCount',
+          'sharedCacheHitsCount',
+          'localCacheHitsCount',
+          'fallbackVoiceUsesCount',
+          'failedGenerationsCount',
+          'totalCloudAudioBytes',
+          'sharedAudioFilesCount',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(statId) && isAdmin();
+    }
+
+    // =========================================================
+    // Collection: ttsConfig
+    // =========================================================
+    match /ttsConfig/{configId} {
+      allow get: if isValidId(configId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.configId is string;
+      allow create: if isValidId(configId) && isAdmin() &&
+        isValidTtsLibraryConfig(incoming(), configId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(configId) && isAdmin() &&
+        isValidTtsLibraryConfig(incoming(), configId) &&
+        incoming().configId == existing().configId &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'defaultModel',
+          'defaultFemaleVoiceId',
+          'defaultMaleVoiceId',
+          'defaultCourseVoiceId',
+          'rootFolderName',
+          'driveConnected',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(configId) && isAdmin();
+    }
+
+    // =========================================================
+    // Collection: admins
+    // =========================================================
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isValidId(userId) && isAdmin() &&
+        isValidAdminUser(incoming(), userId) &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // =========================================================
+    // Collection: users (Strict PII Isolation)
+    // =========================================================
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isValidId(userId) && isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().role == 'learner' || isAdmin());
+      allow update: if isValidId(userId) && (isOwner(userId) || isAdmin()) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredVoiceId', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+  }
+}
