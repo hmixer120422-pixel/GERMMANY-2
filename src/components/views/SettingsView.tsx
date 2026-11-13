@@ -23,11 +23,12 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { ReadingSettings, SupabaseSyncState, VoiceGender } from '../../types';
+import { ElevenLabsVoiceOption, ReadingSettings, SupabaseSyncState, VoiceGender } from '../../types';
 import {
   DEFAULT_ELEVENLABS_MODEL,
-  DEFAULT_FEMALE_VOICE_ID,
-  VERIFIED_ELEVENLABS_VOICES,
+  fetchAvailableElevenLabsVoices,
+  getAvailableElevenLabsVoices,
+  onElevenLabsVoicesChange,
 } from '../../services/elevenLabsVoices';
 import { indexedDbCache, IndexedDbAudioRecord } from '../../services/indexedDbCache';
 import {
@@ -82,9 +83,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [localEntries, setLocalEntries] = useState<Omit<IndexedDbAudioRecord, 'blob'>[]>([]);
   const [confirmClearLocal, setConfirmClearLocal] = useState(false);
 
-  // ElevenLabs server verification state
+  // ElevenLabs live voices & 4-step verification state
+  const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoiceOption[]>(
+    () => getAvailableElevenLabsVoices().voices
+  );
+  const [voicesSource, setVoicesSource] = useState<'elevenlabs-live' | 'fallback'>(
+    () => getAvailableElevenLabsVoices().source
+  );
+  const [voicesError, setVoicesError] = useState<string | null>(
+    () => getAvailableElevenLabsVoices().error
+  );
   const [elevenLabsConfigured, setElevenLabsConfigured] = useState<boolean | null>(null);
   const [testingAudio, setTestingAudio] = useState(false);
+  const [testSteps, setTestSteps] = useState<{
+    authVerified: boolean;
+    voiceAvailable: boolean;
+    audioGenerated: boolean;
+    audioPlayed: boolean;
+  } | null>(null);
   const [testResultMsg, setTestResultMsg] = useState<string | null>(null);
   const [testErrorMsg, setTestErrorMsg] = useState<string | null>(null);
 
@@ -129,6 +145,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     loadLocalCache();
     checkServerStatus();
+    const unsubVoices = onElevenLabsVoicesChange((snapshot) => {
+      setAvailableVoices(snapshot.voices);
+      setVoicesSource(snapshot.source);
+      setVoicesError(snapshot.error);
+      if (snapshot.elevenLabsConfigured) {
+        setElevenLabsConfigured(true);
+      }
+    });
+    fetchAvailableElevenLabsVoices();
+    return () => {
+      unsubVoices();
+    };
   }, [loadLocalCache, checkServerStatus]);
 
   const handleClearLocalCache = async () => {
@@ -148,35 +176,114 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onDataCleared?.();
   };
 
+  const verifyRealAudioPlayback = (base64Mp3: string): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const byteString = atob(base64Mp3);
+      const bytes = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) {
+        bytes[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      const audioEl = new Audio(url);
+      let started = false;
+
+      const cleanup = () => {
+        audioEl.onplaying = null;
+        audioEl.onended = null;
+        audioEl.onerror = null;
+        URL.revokeObjectURL(url);
+      };
+
+      audioEl.onplaying = () => {
+        started = true;
+      };
+      audioEl.onended = () => {
+        const dur = Number.isFinite(audioEl.duration) ? audioEl.duration : 0;
+        cleanup();
+        if (!started && dur <= 0) {
+          reject(new Error('لم يبدأ تشغيل الملف الصوتي فعلياً في المتصفح.'));
+        } else {
+          resolve(dur);
+        }
+      };
+      audioEl.onerror = () => {
+        cleanup();
+        reject(new Error('فشل المتصفح في فك ترميز وتشغيل ملف MP3 المُعاد من ElevenLabs.'));
+      };
+
+      audioEl.play().catch((playErr: any) => {
+        cleanup();
+        reject(
+          new Error(
+            playErr?.name === 'NotAllowedError'
+              ? 'حظر المتصفح التشغيل التلقائي للصوت. يرجى السماح بالصوت والمحاولة مجدداً.'
+              : playErr?.message || 'تعذر تشغيل الصوت المُولَّد من ElevenLabs.'
+          )
+        );
+      });
+    });
+  };
+
   const handleTestElevenLabs = async () => {
     setTestingAudio(true);
     setTestResultMsg(null);
     setTestErrorMsg(null);
+    setTestSteps({
+      authVerified: false,
+      voiceAvailable: false,
+      audioGenerated: false,
+      audioPlayed: false,
+    });
+
     try {
-      const res = await fetch('/api/tts/test', {
+      const res = await fetch('/api/elevenlabs/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: 'Guten Tag! Willkommen bei Deutsch Meister.',
-          voiceId: settings.elevenLabsVoiceId || DEFAULT_FEMALE_VOICE_ID,
+          text: 'Hallo! Willkommen bei Deutsch Meister.',
+          voiceId: settings.elevenLabsVoiceId || '',
           model: settings.elevenLabsModel || DEFAULT_ELEVENLABS_MODEL,
         }),
       });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'فشل اختبار ElevenLabs.');
+      const json = await res.json().catch(() => null);
+
+      if (json?.data) {
+        setTestSteps({
+          authVerified: Boolean(json.data.authVerified),
+          voiceAvailable: Boolean(json.data.voiceAvailable),
+          audioGenerated: Boolean(json.data.audioGenerated),
+          audioPlayed: false,
+        });
+      }
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `فشل اختبار ElevenLabs (HTTP ${res.status}).`);
       }
       if (!json.data?.audioBase64) {
-        throw new Error('لم يعد الخادم ملف صوتي قابل للتشغيل.');
+        throw new Error('لم يعد الخادم ملف MP3 قابلاً للتشغيل.');
       }
-      const audioEl = new Audio(`data:audio/mpeg;base64,${json.data.audioBase64}`);
-      await audioEl.play();
+
+      const durationSec = await verifyRealAudioPlayback(json.data.audioBase64);
       setElevenLabsConfigured(true);
+      setTestSteps({
+        authVerified: true,
+        voiceAvailable: true,
+        audioGenerated: true,
+        audioPlayed: true,
+      });
+
+      const quotaText =
+        typeof json.data?.quota?.remainingCharacters === 'number'
+          ? ` • الرصيد المتبقي: ${json.data.quota.remainingCharacters.toLocaleString()} حرف`
+          : '';
+
       setTestResultMsg(
-        `✓ تم توليد وتشغيل صوت ElevenLabs بنجاح (${json.data.bytes} بايت MP3 خلال ${json.data.latencyMs}ms).`
+        `✓ اكتمل التحقق بالكامل: المصادقة ناجحة، الصوت "${json.data.voiceName}" متاح، تم توليد ${json.data.bytes} بايت MP3 (${json.data.latencyMs}ms)، وتم التشغيل الفعلي (${durationSec.toFixed(1)}ث)${quotaText}.`
       );
+      await fetchAvailableElevenLabsVoices();
     } catch (err: any) {
-      setTestErrorMsg(err?.message || 'تعذر توليد الصوت عبر ElevenLabs.');
+      setTestErrorMsg(err?.message || 'تعذر إتمام اختبار ElevenLabs.');
     } finally {
       setTestingAudio(false);
     }
@@ -216,7 +323,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setCopiedSql(false), 2000);
   };
 
-  const filteredVoices = VERIFIED_ELEVENLABS_VOICES.filter((v) => v.gender === genderTab);
+  const filteredVoices = availableVoices.filter((v) => v.gender === genderTab);
+  const displayedVoices = filteredVoices.length > 0 ? filteredVoices : availableVoices;
 
   return (
     <div className="space-y-8 animate-in fade-in max-w-4xl" dir="rtl">
@@ -284,6 +392,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
 
+          {testSteps && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-bold">
+              {[
+                { label: '1. مصادقة API', ok: testSteps.authVerified },
+                { label: '2. توفر الصوت', ok: testSteps.voiceAvailable },
+                { label: '3. توليد MP3 حقيقي', ok: testSteps.audioGenerated },
+                { label: '4. التشغيل الفعلي', ok: testSteps.audioPlayed },
+              ].map((step) => (
+                <div
+                  key={step.label}
+                  className={`px-3 py-2 rounded-xl border flex items-center gap-1.5 ${
+                    step.ok
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  {step.ok ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>{step.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {voicesError && (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-800 dark:text-amber-200">
+              ⚠ تعذر جلب الأصوات المباشرة من ElevenLabs: {voicesError}
+            </div>
+          )}
+
           {testResultMsg && (
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-300">
               {testResultMsg}
@@ -310,8 +451,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <Volume2 className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  أصوات اللغة الألمانية (ElevenLabs فقط)
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                  <span>أصوات اللغة الألمانية (ElevenLabs فقط)</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                      voicesSource === 'elevenlabs-live'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                    }`}
+                  >
+                    {voicesSource === 'elevenlabs-live'
+                      ? `مجلوبة مباشرة من حسابك (${availableVoices.length})`
+                      : 'قائمة افتراضية'}
+                  </span>
                 </h2>
                 <p className="text-xs text-slate-400">
                   يُستخدم نفس الصوت المختار لقراءة الجمل الكاملة ولنطق الكلمات الفردية عند النقر عليها
@@ -319,32 +471,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setGenderTab('female')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                  genderTab === 'female'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                    : 'text-slate-500'
-                }`}
+                type="button"
+                onClick={() => fetchAvailableElevenLabsVoices()}
+                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                title="تحديث قائمة الأصوات من ElevenLabs"
               >
-                أصوات نسائية
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
-              <button
-                onClick={() => setGenderTab('male')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                  genderTab === 'male'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                    : 'text-slate-500'
-                }`}
-              >
-                أصوات ذكورية
-              </button>
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <button
+                  onClick={() => setGenderTab('female')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                    genderTab === 'female'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  أصوات نسائية
+                </button>
+                <button
+                  onClick={() => setGenderTab('male')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                    genderTab === 'male'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  أصوات ذكورية
+                </button>
+              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredVoices.map((v) => {
+            {displayedVoices.map((v) => {
               const selected = settings.elevenLabsVoiceId === v.voiceId;
               return (
                 <div

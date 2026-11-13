@@ -1,62 +1,80 @@
 import { ElevenLabsVoiceOption } from '../types';
+import {
+  DEFAULT_ELEVENLABS_MODEL,
+  DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
+  DEFAULT_FEMALE_VOICE_ID,
+  DEFAULT_MALE_VOICE_ID,
+  VERIFIED_ELEVENLABS_VOICES,
+} from './elevenLabsConstants';
 
-export const DEFAULT_ELEVENLABS_MODEL = 'eleven_multilingual_v2';
-export const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = 'mp3_44100_128';
-export const DEFAULT_FEMALE_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah (Natural German Hochdeutsch Female)
-export const DEFAULT_MALE_VOICE_ID = 'ErXwobaYiN019PkySvjV'; // Antoni (Multilingual v2)
+export {
+  DEFAULT_ELEVENLABS_MODEL,
+  DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
+  DEFAULT_FEMALE_VOICE_ID,
+  DEFAULT_MALE_VOICE_ID,
+  VERIFIED_ELEVENLABS_VOICES,
+};
 
-/**
- * Curated ElevenLabs Multilingual v2 voices for German (Hochdeutsch) reading & listening.
- */
-export const VERIFIED_ELEVENLABS_VOICES: ElevenLabsVoiceOption[] = [
-  {
-    voiceId: 'EXAVITQu4vr4xnSDxMaL',
-    name: 'Sarah (German Female)',
-    labelArabic: 'Sarah (صوت نسائي ألماني طبيعي — Hochdeutsch)',
-    gender: 'female',
-    description: 'نطق ألماني فصيح وواضح ومتزن (eleven_multilingual_v2)',
-    model: DEFAULT_ELEVENLABS_MODEL,
-    isDefaultFemale: true,
-  },
-  {
-    voiceId: 'Xb7hH8MSUJpSbSDYk0k2',
-    name: 'Alice (Clear Female)',
-    labelArabic: 'Alice (صوت نسائي نقي وواضح)',
-    gender: 'female',
-    description: 'نبرة واضحة لنصوص القراءة الطويلة والمفردات',
-    model: DEFAULT_ELEVENLABS_MODEL,
-  },
-  {
-    voiceId: 'FGY2WhTYpPnrIDTdsKH5',
-    name: 'Laura (Warm Female)',
-    labelArabic: 'Laura (صوت نسائي دافئ ومعبّر)',
-    gender: 'female',
-    description: 'مناسب للقصص الشخصية والحوارات اليومية',
-    model: DEFAULT_ELEVENLABS_MODEL,
-  },
-  {
-    voiceId: 'ErXwobaYiN019PkySvjV',
-    name: 'Antoni (Clear Male)',
-    labelArabic: 'Antoni (صوت ذكوري واضح وهادئ)',
-    gender: 'male',
-    description: 'مناسب للحوارات والمقالات الرسمية',
-    model: DEFAULT_ELEVENLABS_MODEL,
-  },
-  {
-    voiceId: 'pNInz6obpgDQGcFmaJgB',
-    name: 'Adam (Deep Male)',
-    labelArabic: 'Adam (صوت ذكوري عميق ورصين)',
-    gender: 'male',
-    description: 'مثالي للنصوص الإخبارية والمستويات B2–C2',
-    model: DEFAULT_ELEVENLABS_MODEL,
-  },
-  {
-    voiceId: 'onwK4e9ZLuTAKqWW03F9',
-    name: 'Daniel (Broadcast Male)',
-    labelArabic: 'Daniel (صوت ذكوري إخباري متزن)',
-    gender: 'male',
-    description: 'مناسب للمقالات التحليلية والتقارير',
-    model: DEFAULT_ELEVENLABS_MODEL,
-  },
-];
+export interface LiveElevenLabsVoicesSnapshot {
+  voices: ElevenLabsVoiceOption[];
+  defaultFemaleVoiceId: string;
+  defaultMaleVoiceId: string;
+  elevenLabsConfigured: boolean;
+  source: 'elevenlabs-live' | 'fallback';
+  error: string | null;
+}
 
+let cachedSnapshot: LiveElevenLabsVoicesSnapshot = {
+  voices: VERIFIED_ELEVENLABS_VOICES,
+  defaultFemaleVoiceId: DEFAULT_FEMALE_VOICE_ID,
+  defaultMaleVoiceId: DEFAULT_MALE_VOICE_ID,
+  elevenLabsConfigured: false,
+  source: 'fallback',
+  error: null,
+};
+
+const listeners = new Set<(snapshot: LiveElevenLabsVoicesSnapshot) => void>();
+
+export function getAvailableElevenLabsVoices(): LiveElevenLabsVoicesSnapshot {
+  return cachedSnapshot;
+}
+
+export function onElevenLabsVoicesChange(
+  cb: (snapshot: LiveElevenLabsVoicesSnapshot) => void
+): () => void {
+  listeners.add(cb);
+  cb(cachedSnapshot);
+  return () => listeners.delete(cb);
+}
+
+export async function fetchAvailableElevenLabsVoices(): Promise<LiveElevenLabsVoicesSnapshot> {
+  try {
+    const res = await fetch('/api/elevenlabs/voices', { cache: 'no-store' });
+    const json: any = await res.json().catch(() => null);
+    const payload = json?.data;
+
+    if (payload && Array.isArray(payload.voices) && payload.voices.length > 0) {
+      cachedSnapshot = {
+        voices: payload.voices,
+        defaultFemaleVoiceId: payload.defaultFemaleVoiceId || payload.voices[0].voiceId,
+        defaultMaleVoiceId: payload.defaultMaleVoiceId || payload.voices[0].voiceId,
+        elevenLabsConfigured: Boolean(payload.elevenLabsConfigured),
+        source: payload.source === 'elevenlabs-live' ? 'elevenlabs-live' : 'fallback',
+        error: json?.success === false ? json?.error || 'تعذر جلب الأصوات من ElevenLabs.' : null,
+      };
+    } else if (json?.error) {
+      cachedSnapshot = {
+        ...cachedSnapshot,
+        error: json.error,
+      };
+    }
+  } catch (err: any) {
+    cachedSnapshot = {
+      ...cachedSnapshot,
+      error: err?.message || 'تعذر الاتصال بالخادم لجلب أصوات ElevenLabs.',
+    };
+  }
+
+  listeners.forEach((cb) => cb(cachedSnapshot));
+  return cachedSnapshot;
+}

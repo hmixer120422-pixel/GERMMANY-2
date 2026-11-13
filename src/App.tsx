@@ -36,6 +36,10 @@ import {
 } from './services/supabaseClient';
 import { onSupabaseSyncChange } from './services/supabaseSync';
 import { audioEngine } from './services/audioEngine';
+import {
+  DEFAULT_ELEVENLABS_MODEL,
+  fetchAvailableElevenLabsVoices,
+} from './services/elevenLabsVoices';
 import { splitGermanSentences } from './utils/audioHash';
 
 export default function App() {
@@ -129,21 +133,30 @@ export default function App() {
       }
     });
 
-    // Sync default ElevenLabs voice metadata if user hasn't saved custom preferences yet
-    fetch('/api/tts/voices')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (mounted && json?.success && json?.data) {
-          const current = getStoredSettings();
-          if (!localStorage.getItem('deutsch_meister_settings_v1')) {
-            const synced: ReadingSettings = {
-              ...current,
-              elevenLabsVoiceId: json.data.defaultFemaleVoiceId || current.elevenLabsVoiceId,
-              elevenLabsModel: json.data.model || current.elevenLabsModel,
-            };
-            setSettings(synced);
-            audioEngine.updateSettings(synced);
-          }
+    // Retrieve live voices from ElevenLabs API and ensure a valid German female voice is selected
+    fetchAvailableElevenLabsVoices()
+      .then((snapshot) => {
+        if (!mounted || snapshot.voices.length === 0) return;
+        const current = getStoredSettings();
+        const hasSavedPrefs = Boolean(localStorage.getItem('deutsch_meister_settings_v1'));
+        const voiceExistsInLive = snapshot.voices.some(
+          (v) => v.voiceId === current.elevenLabsVoiceId
+        );
+
+        if (!hasSavedPrefs || (snapshot.source === 'elevenlabs-live' && !voiceExistsInLive)) {
+          const defaultVoice =
+            snapshot.voices.find((v) => v.voiceId === snapshot.defaultFemaleVoiceId) ||
+            snapshot.voices[0];
+          const synced: ReadingSettings = {
+            ...current,
+            voice: defaultVoice?.name || current.voice,
+            voiceGender: defaultVoice?.gender || 'female',
+            elevenLabsVoiceId: snapshot.defaultFemaleVoiceId || current.elevenLabsVoiceId,
+            elevenLabsModel: DEFAULT_ELEVENLABS_MODEL,
+          };
+          setSettings(synced);
+          if (hasSavedPrefs) saveStoredSettings(synced);
+          audioEngine.updateSettings(synced);
         }
       })
       .catch(() => {});

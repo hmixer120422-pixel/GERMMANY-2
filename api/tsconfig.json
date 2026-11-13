@@ -13,7 +13,7 @@
   },
   "include": [
     "./**/*.ts",
-    "../src/services/elevenLabsVoices.ts",
+    "../src/services/elevenLabsConstants.ts",
     "../src/utils/audioHash.ts",
     "../src/data/germanDictionary.ts"
   ]

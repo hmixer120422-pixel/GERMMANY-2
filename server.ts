@@ -8,20 +8,16 @@ import {
   analyzeGermanSentenceLocally,
   analyzeGermanWordLocally,
 } from './src/data/germanDictionary';
-import {
-  normalizeGermanText,
-  splitGermanSentences,
-} from './src/utils/audioHash';
+import { splitGermanSentences } from './src/utils/audioHash';
 import {
   DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_FEMALE_VOICE_ID,
   DEFAULT_MALE_VOICE_ID,
-  VERIFIED_ELEVENLABS_VOICES,
-} from './src/services/elevenLabsVoices';
-import {
-  getElevenLabsApiKey,
-  synthesizeWithElevenLabsServer,
-} from './api/_lib/elevenlabs';
+} from './src/services/elevenLabsConstants';
+import { getElevenLabsApiKey } from './api/_lib/elevenlabs';
+import elevenLabsTtsHandler from './api/elevenlabs/tts';
+import elevenLabsVoicesHandler from './api/elevenlabs/voices';
+import elevenLabsTestHandler from './api/elevenlabs/test';
 import { getSupabasePublicConfig } from './api/_lib/supabaseConfig';
 
 dotenv.config();
@@ -207,111 +203,31 @@ app.get('/api/tts/status', ttsReadLimiter, (_req: Request, res: Response) => {
   });
 });
 
-app.get('/api/tts/voices', ttsReadLimiter, (_req: Request, res: Response) => {
-  res.setHeader('Cache-Control', 'no-store');
-  return res.json({
-    success: true,
-    data: {
-      provider: 'elevenlabs',
-      model: DEFAULT_ELEVENLABS_MODEL,
-      defaultFemaleVoiceId: DEFAULT_FEMALE_VOICE_ID,
-      defaultMaleVoiceId: DEFAULT_MALE_VOICE_ID,
-      elevenLabsConfigured: Boolean(getElevenLabsApiKey()),
-      voices: VERIFIED_ELEVENLABS_VOICES,
-    },
-  });
-});
+app.get('/api/elevenlabs/voices', ttsReadLimiter, (req: Request, res: Response) =>
+  elevenLabsVoicesHandler(req as any, res as any)
+);
 
-// Synthesize German speech via official ElevenLabs API using server-side ELEVENLABS_API_KEY
-app.post('/api/tts/synthesize', ttsWriteLimiter, async (req: Request, res: Response) => {
-  try {
-    const {
-      text,
-      model = DEFAULT_ELEVENLABS_MODEL,
-      voiceId = DEFAULT_FEMALE_VOICE_ID,
-    } = req.body || {};
+app.get('/api/tts/voices', ttsReadLimiter, (req: Request, res: Response) =>
+  elevenLabsVoicesHandler(req as any, res as any)
+);
 
-    if (typeof text !== 'string' || !text.trim()) {
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_TEXT',
-        error: 'النص مطلوب لتوليد الصوت عبر ElevenLabs.',
-      });
-    }
+// Primary ElevenLabs TTS endpoint (also mounted at /api/tts/synthesize for backwards compatibility)
+app.post('/api/elevenlabs/tts', ttsWriteLimiter, (req: Request, res: Response) =>
+  elevenLabsTtsHandler(req as any, res as any)
+);
 
-    const normalizedText = normalizeGermanText(text);
-    if (normalizedText.length > 3500) {
-      return res.status(400).json({
-        success: false,
-        code: 'TEXT_TOO_LONG',
-        error: 'يتجاوز المقطع النصي الحد الأقصى البالغ 3,500 حرف.',
-      });
-    }
+app.post('/api/tts/synthesize', ttsWriteLimiter, (req: Request, res: Response) =>
+  elevenLabsTtsHandler(req as any, res as any)
+);
 
-    const synth = await synthesizeWithElevenLabsServer({
-      text: normalizedText,
-      voiceId: typeof voiceId === 'string' && voiceId.trim() ? voiceId.trim() : DEFAULT_FEMALE_VOICE_ID,
-      model: typeof model === 'string' && model.trim() ? model.trim() : DEFAULT_ELEVENLABS_MODEL,
-    });
+// ElevenLabs full connection test (auth, voice availability, real MP3 generation)
+app.post('/api/elevenlabs/test', ttsWriteLimiter, (req: Request, res: Response) =>
+  elevenLabsTestHandler(req as any, res as any)
+);
 
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', String(synth.buffer.length));
-    res.setHeader('X-Audio-Source', 'Newly Generated ElevenLabs Audio');
-    res.setHeader('Cache-Control', 'no-store');
-    return res.send(synth.buffer);
-  } catch (err: any) {
-    const status = typeof err?.status === 'number' ? err.status : 500;
-    return res.status(status).json({
-      success: false,
-      code: err?.code || 'TTS_SYNTHESIS_FAILED',
-      error: err?.message || 'تعذر توليد الصوت عبر ElevenLabs.',
-    });
-  }
-});
-
-// Test actual ElevenLabs audio generation from server (used in Settings verification)
-app.post('/api/tts/test', ttsWriteLimiter, async (req: Request, res: Response) => {
-  const start = Date.now();
-  try {
-    const sampleText =
-      typeof req.body?.text === 'string' && req.body.text.trim()
-        ? req.body.text.trim().slice(0, 200)
-        : 'Hallo! Willkommen bei Deutsch Meister.';
-    const voiceId =
-      typeof req.body?.voiceId === 'string' && req.body.voiceId.trim()
-        ? req.body.voiceId.trim()
-        : DEFAULT_FEMALE_VOICE_ID;
-    const model =
-      typeof req.body?.model === 'string' && req.body.model.trim()
-        ? req.body.model.trim()
-        : DEFAULT_ELEVENLABS_MODEL;
-
-    const synth = await synthesizeWithElevenLabsServer({
-      text: sampleText,
-      voiceId,
-      model,
-    });
-
-    return res.json({
-      success: true,
-      data: {
-        bytes: synth.buffer.length,
-        contentType: synth.contentType,
-        voiceId,
-        model,
-        latencyMs: Date.now() - start,
-        audioBase64: synth.buffer.toString('base64'),
-      },
-    });
-  } catch (err: any) {
-    const status = typeof err?.status === 'number' ? err.status : 500;
-    return res.status(status).json({
-      success: false,
-      code: err?.code || 'ELEVENLABS_TEST_FAILED',
-      error: err?.message || 'فشل اختبار التوليد الصوتي عبر ElevenLabs.',
-    });
-  }
-});
+app.post('/api/tts/test', ttsWriteLimiter, (req: Request, res: Response) =>
+  elevenLabsTestHandler(req as any, res as any)
+);
 
 // Return JSON 404 for unknown API endpoints
 app.all('/api/*', (_req: Request, res: Response) => {

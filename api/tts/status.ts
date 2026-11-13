@@ -2,7 +2,7 @@ import {
   DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_FEMALE_VOICE_ID,
   DEFAULT_MALE_VOICE_ID,
-} from '../../src/services/elevenLabsVoices';
+} from '../../src/services/elevenLabsConstants';
 import { getElevenLabsApiKey } from '../_lib/elevenlabs';
 import {
   applyApiSecurityHeaders,

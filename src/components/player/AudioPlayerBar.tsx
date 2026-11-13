@@ -16,11 +16,12 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { AudioSourceStatus, ReadingSettings, VoiceGender } from '../../types';
+import { AudioSourceStatus, ElevenLabsVoiceOption, ReadingSettings, VoiceGender } from '../../types';
 import { audioEngine, PlaybackState } from '../../services/audioEngine';
 import {
   DEFAULT_ELEVENLABS_MODEL,
-  VERIFIED_ELEVENLABS_VOICES,
+  getAvailableElevenLabsVoices,
+  onElevenLabsVoicesChange,
 } from '../../services/elevenLabsVoices';
 
 interface AudioPlayerBarProps {
@@ -49,6 +50,9 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   const [genderFilter, setGenderFilter] = useState<VoiceGender>(
     settings.voiceGender || 'female'
   );
+  const [availableVoices, setAvailableVoices] = useState<ElevenLabsVoiceOption[]>(
+    () => getAvailableElevenLabsVoices().voices
+  );
 
   useEffect(() => {
     setLiveSentenceIndex(currentSentenceIndex);
@@ -71,6 +75,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       setErrorText(msg);
     });
 
+    const unsubVoices = onElevenLabsVoicesChange((snapshot) => {
+      setAvailableVoices(snapshot.voices);
+    });
+
     setPlaybackState(audioEngine.getState());
     setSourceStatus(audioEngine.getSourceStatus());
 
@@ -79,6 +87,7 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       unsubSource();
       unsubSentence();
       unsubError();
+      unsubVoices();
     };
   }, []);
 
@@ -138,11 +147,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
     totalSentences > 0 ? Math.min(liveSentenceIndex + 1, totalSentences) : 0;
   const progressPercent = totalSentences > 0 ? (currentDisplayIndex / totalSentences) * 100 : 0;
 
-  const filteredVoices = VERIFIED_ELEVENLABS_VOICES.filter((v) => v.gender === genderFilter);
+  const filteredVoices = availableVoices.filter((v) => v.gender === genderFilter);
+  const displayedVoices = filteredVoices.length > 0 ? filteredVoices : availableVoices;
   const activeVoiceLabel =
-    VERIFIED_ELEVENLABS_VOICES.find((v) => v.voiceId === settings.elevenLabsVoiceId)?.name.split(
-      ' '
-    )[0] ||
+    availableVoices.find((v) => v.voiceId === settings.elevenLabsVoiceId)?.name.split(' ')[0] ||
     settings.voice.split(' ')[0] ||
     'Sarah';
 
@@ -423,7 +431,7 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
                     </div>
                   </div>
 
-                  {filteredVoices.map((v) => {
+                  {displayedVoices.map((v) => {
                     const isSelected = settings.elevenLabsVoiceId === v.voiceId;
                     return (
                       <button

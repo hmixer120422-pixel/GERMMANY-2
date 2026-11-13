@@ -9,7 +9,7 @@ import {
   DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_FEMALE_VOICE_ID,
   DEFAULT_MALE_VOICE_ID,
-  VERIFIED_ELEVENLABS_VOICES,
+  getAvailableElevenLabsVoices,
 } from './elevenLabsVoices';
 
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped' | 'error';
@@ -148,12 +148,15 @@ class AudioEngine {
 
   public getActiveVoiceId(): string {
     if (this.settings.elevenLabsVoiceId) return this.settings.elevenLabsVoiceId;
-    return this.settings.voiceGender === 'male' ? DEFAULT_MALE_VOICE_ID : DEFAULT_FEMALE_VOICE_ID;
+    const live = getAvailableElevenLabsVoices();
+    return this.settings.voiceGender === 'male'
+      ? live.defaultMaleVoiceId || DEFAULT_MALE_VOICE_ID
+      : live.defaultFemaleVoiceId || DEFAULT_FEMALE_VOICE_ID;
   }
 
   public getActiveVoiceGender(): VoiceGender {
     const id = this.getActiveVoiceId();
-    const matched = VERIFIED_ELEVENLABS_VOICES.find((v) => v.voiceId === id);
+    const matched = getAvailableElevenLabsVoices().voices.find((v) => v.voiceId === id);
     if (matched) return matched.gender;
     return this.settings.voiceGender === 'male' ? 'male' : 'female';
   }
@@ -318,9 +321,9 @@ class AudioEngine {
       await indexedDbCache.deleteAudio(audioHash).catch(() => {});
     }
 
-    // TIER 2: Official ElevenLabs API via secure server endpoint (ONLY TTS provider)
+    // TIER 2: Official ElevenLabs API via Vercel serverless endpoint (/api/elevenlabs/tts)
     try {
-      const synthRes = await fetch('/api/tts/synthesize', {
+      const synthRes = await fetch('/api/elevenlabs/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -374,7 +377,9 @@ class AudioEngine {
     } catch (err: any) {
       if (sessionId !== this.playbackSessionId) return false;
       this.failPlayback(
-        err?.message || 'تعذر الاتصال بخدمة ElevenLabs لتوليد الصوت. تحقق من الاتصال وأعد المحاولة.',
+        err?.message
+          ? `خطأ في الاتصال بخدمة ElevenLabs: ${err.message}`
+          : 'تعذر الاتصال بخدمة ElevenLabs لتوليد الصوت. تحقق من الاتصال وأعد المحاولة.',
         retryAction
       );
       return false;
@@ -557,6 +562,13 @@ class AudioEngine {
         this.wordAudio.onended = () => {
           this.handleWordEnded();
           resolve(true);
+        };
+        this.wordAudio.onerror = () => {
+          this.failPlayback('تعذر تشغيل صوت الكلمة المُسترجع من ElevenLabs.', {
+            type: 'word',
+            word: cleanWord,
+          });
+          resolve(false);
         };
       }
 
