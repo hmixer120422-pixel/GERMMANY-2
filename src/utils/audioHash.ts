@@ -181,3 +181,73 @@ export function formatBytes(bytes: number): string {
   const val = bytes / Math.pow(1024, idx);
   return `${val.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
 }
+
+function getAudioExtensionFromMime(mimeType?: string): string {
+  const lower = (mimeType || '').toLowerCase();
+  if (lower.includes('wav')) return 'wav';
+  if (lower.includes('mp4') || lower.includes('m4a')) return 'm4a';
+  if (lower.includes('aac')) return 'aac';
+  if (lower.includes('flac')) return 'flac';
+  if (lower.includes('ogg')) return 'ogg';
+  if (lower.includes('webm')) return 'webm';
+  return 'mp3';
+}
+
+/**
+ * Generates a readable, storage-safe audio filename directly from the spoken text
+ * (transliterating German umlauts/ß so S3/Supabase keys remain clean and legible).
+ */
+export function buildAudioFileNameFromText(
+  text: string,
+  mimeType?: string,
+  fallbackId?: string
+): string {
+  const ext = getAudioExtensionFromMime(mimeType);
+  const transliterated = (text || '')
+    .trim()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae')
+    .replace(/Ö/g, 'Oe')
+    .replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  let base = transliterated
+    .replace(/[^A-Za-z0-9\-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '');
+
+  if (base.length > 96) {
+    base = base.slice(0, 96).replace(/[_-]+$/g, '');
+  }
+
+  if (!base) {
+    base = `audio_${(fallbackId || Date.now().toString()).slice(0, 8)}`;
+  }
+
+  return `${base}.${ext}`;
+}
+
+export function dedupeAudioFileName(fileName: string, usedNames: Set<string>): string {
+  const key = fileName.toLowerCase();
+  if (!usedNames.has(key)) {
+    usedNames.add(key);
+    return fileName;
+  }
+
+  const dot = fileName.lastIndexOf('.');
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext = dot > 0 ? fileName.slice(dot) : '';
+
+  let counter = 2;
+  while (usedNames.has(`${base}_${counter}${ext}`.toLowerCase())) {
+    counter += 1;
+  }
+  const uniqueName = `${base}_${counter}${ext}`;
+  usedNames.add(uniqueName.toLowerCase());
+  return uniqueName;
+}
+

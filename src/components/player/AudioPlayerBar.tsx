@@ -15,6 +15,7 @@ import {
   AlertCircle,
   RefreshCw,
   X,
+  Cloud,
 } from 'lucide-react';
 import { AudioSourceStatus, ElevenLabsVoiceOption, ReadingSettings, VoiceGender } from '../../types';
 import { audioEngine, PlaybackState } from '../../services/audioEngine';
@@ -132,7 +133,14 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       return {
         cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800',
         icon: <HardDrive className="w-3 h-3" />,
-        label: 'كاش المتصفح (ElevenLabs)',
+        label: 'كاش المتصفح (بدون استهلاك رصيد)',
+      };
+    }
+    if (status === 'Supabase Cloud Audio') {
+      return {
+        cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800',
+        icon: <Cloud className="w-3 h-3" />,
+        label: 'سحابة Supabase (توفير الرصيد)',
       };
     }
     return {
@@ -243,6 +251,38 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
                   <span>{badge.label}</span>
                 </span>
               </div>
+            </div>
+
+            {/* Reading unit switcher: Sentence-by-Sentence vs Word-by-Word */}
+            <div
+              className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700"
+              role="group"
+              aria-label="نمط القراءة الصوتية"
+            >
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ readingUnit: 'sentence' })}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                  (settings.readingUnit || 'sentence') === 'sentence'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="قراءة الجملة كاملة ثم الانتقال للجملة التالية"
+              >
+                جملة بجملة
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ readingUnit: 'word' })}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                  settings.readingUnit === 'word'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="نطق النص كلمة تلو الأخرى مع تظليل الكلمة المنطوقة"
+              >
+                كلمة بكلمة
+              </button>
             </div>
 
             {/* Repeat mode badge */}

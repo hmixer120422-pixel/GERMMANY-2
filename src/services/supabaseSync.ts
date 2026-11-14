@@ -12,6 +12,17 @@ import {
   initSupabaseClient,
   SUPABASE_STORAGE_BUCKET,
 } from './supabaseClient';
+import { IndexedDbAudioRecord } from './indexedDbCache';
+import { buildAudioFileNameFromText, dedupeAudioFileName } from '../utils/audioHash';
+import {
+  detectActualMimeType,
+  getAlternateAudioMimeType,
+  isAudioFileNameOrMime,
+  preserveUploadFilename,
+  SUPABASE_AUDIO_BUCKET_SQL,
+} from '../utils/audioMime';
+
+export { SUPABASE_AUDIO_BUCKET_SQL };
 
 type SyncListener = (status: {
   state: SupabaseSyncState;
@@ -54,90 +65,188 @@ async function getAuthedContext() {
 }
 
 function sanitizeStorageFileName(fileName: string): string {
-  const dot = fileName.lastIndexOf('.');
-  const rawBase = dot > 0 ? fileName.slice(0, dot) : fileName;
-  const ext =
-    dot > 0 ? fileName.slice(dot).normalize('NFKD').replace(/[^\w.]+/g, '').slice(0, 10) : '';
-  const base =
-    rawBase
-      .normalize('NFKD')
-      .replace(/[^\w\-]+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '')
-      .slice(0, 100) || 'document';
-  return `${base}${ext}`;
+  return preserveUploadFilename(fileName || 'document.txt').preservedName;
+}
+
+function isInvalidStorageKeyError(message: string): boolean {
+  const lower = (message || '').toLowerCase();
+  return lower.includes('invalid key') || lower.includes('invalidkey') || lower.includes('key is invalid');
+}
+
+export function isBucketMimeConfigError(message: string): boolean {
+  const lower = (message || '').toLowerCase();
+  return (
+    lower.includes('mime') ||
+    lower.includes('content type') ||
+    lower.includes('not supported') ||
+    lower.includes('allowed_mime_types')
+  );
+}
+
+function formatSupabaseUploadError(fileName: string, rawMessage: string, mimeType: string): string {
+  if (isBucketMimeConfigError(rawMessage)) {
+    return `فشل رفع «${fileName}»: ${rawMessage} — حاوية "${SUPABASE_STORAGE_BUCKET}" في Supabase لا تسمح بعد بالصيغة (${mimeType}). يرجى تشغيل ملف SQL: supabase/update_audio_mime_types.sql داخل SQL Editor في لوحة Supabase.`;
+  }
+  return `فشل رفع «${fileName}»: ${rawMessage}`;
 }
 
 // =============================================================
 // SUPABASE STORAGE API (`german-learning` private bucket)
 // =============================================================
 
-const ALLOWED_UPLOAD_MIME_BY_EXT: Record<string, string> = {
-  txt: 'text/plain',
-  pdf: 'application/pdf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-};
-
-/**
- * The bucket only accepts text/plain, PDF, DOCX and octet-stream. Browsers sometimes report
- * other/empty types (e.g. application/x-pdf), which Storage rejects, so derive it from the extension.
- */
-function resolveUploadMimeType(file: File): string {
-  const ext = (file.name.split('.').pop() || '').toLowerCase();
-  return ALLOWED_UPLOAD_MIME_BY_EXT[ext] || 'application/octet-stream';
-}
-
 export async function uploadFileToSupabaseStorage(file: File): Promise<{
   storagePath: string;
   fileName: string;
   fileSize: number;
   mimeType: string;
+  skippedExisting?: boolean;
 } | null> {
   const ctx = await getAuthedContext();
   if (!ctx) return null;
 
-  const cleanName = sanitizeStorageFileName(file.name || 'document.txt');
-  const storagePath = `${ctx.user.id}/${Date.now()}_${cleanName}`;
-  const mimeType = resolveUploadMimeType(file);
+  const detectedMime = await detectActualMimeType(file, file.name);
+  const isAudio = isAudioFileNameOrMime(file.name, detectedMime);
+  const { preservedName, asciiFallbackName } = preserveUploadFilename(file.name || 'document.txt');
 
-  const { error } = await ctx.client.storage
-    .from(SUPABASE_STORAGE_BUCKET)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: mimeType,
-    });
+  // If this is an audio file and the word/phrase already exists in Supabase Storage, skip re-uploading
+  if (isAudio) {
+    const byStem = await getAudioIndexMap(ctx, { forceRefresh: true });
+    const existing = findMatchingAudioEntryInMap(byStem, file.name);
+    if (existing) {
+      return {
+        storagePath: existing.path,
+        fileName: existing.name,
+        fileSize: existing.size || file.size,
+        mimeType: existing.mimeType || detectedMime,
+        skippedExisting: true,
+      };
+    }
+  }
 
-  if (error) {
-    throw new Error(`فشل رفع الملف إلى Supabase Storage: ${error.message}`);
+  const buildPath = (name: string) =>
+    isAudio ? `${ctx.user.id}/audio/${name}` : `${ctx.user.id}/${Date.now()}_${name}`;
+
+  const tryUpload = async (path: string, contentType: string, upsert: boolean) => {
+    const { error } = await ctx.client.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(path, file, {
+        cacheControl: '3600',
+        upsert,
+        contentType,
+      });
+    return error;
+  };
+
+  let activePath = buildPath(preservedName);
+  let usedMime = detectedMime;
+  let uploadErr = await tryUpload(activePath, usedMime, isAudio);
+
+  // If storage backend enforces strict ASCII object keys, retry with deterministic ASCII fallback
+  if (uploadErr && isInvalidStorageKeyError(uploadErr.message) && asciiFallbackName !== preservedName) {
+    activePath = buildPath(asciiFallbackName);
+    uploadErr = await tryUpload(activePath, usedMime, isAudio);
+  }
+
+  // If primary audio MIME alias is rejected (e.g. audio/mp4 vs audio/x-m4a), try canonical alias
+  const altMime = isAudio ? getAlternateAudioMimeType(usedMime) : null;
+  if (uploadErr && altMime && isBucketMimeConfigError(uploadErr.message)) {
+    const altErr = await tryUpload(activePath, altMime, isAudio);
+    if (!altErr) {
+      usedMime = altMime;
+      uploadErr = null;
+    }
+  }
+
+  // Fallback for older RLS policies that allow INSERT on storage.objects without UPDATE (needed by upsert: true)
+  if (
+    uploadErr &&
+    isAudio &&
+    (uploadErr.message.toLowerCase().includes('row-level security') ||
+      uploadErr.message.toLowerCase().includes('policy'))
+  ) {
+    const dot = preservedName.lastIndexOf('.');
+    const base = dot > 0 ? preservedName.slice(0, dot) : preservedName;
+    const ext = dot > 0 ? preservedName.slice(dot) : '';
+    const insertPath = buildPath(`${base}_${Date.now()}${ext}`);
+    const insertErr = await tryUpload(insertPath, usedMime, false);
+    if (!insertErr) {
+      activePath = insertPath;
+      uploadErr = null;
+    }
+  }
+
+  if (uploadErr) {
+    throw new Error(formatSupabaseUploadError(file.name, uploadErr.message, usedMime));
+  }
+
+  if (isAudio) {
+    invalidateSupabaseAudioIndexCache();
   }
 
   return {
-    storagePath,
-    fileName: file.name,
+    storagePath: activePath,
+    fileName: file.name || preservedName,
     fileSize: file.size,
-    mimeType,
+    mimeType: usedMime,
+    skippedExisting: false,
   };
+}
+
+async function listAllAudioItemsFromBucket(
+  ctx: NonNullable<Awaited<ReturnType<typeof getAuthedContext>>>,
+  displayPrefix = ''
+): Promise<SupabaseStorageFileItem[]> {
+  const prefix = `${ctx.user.id}/audio`;
+  const pageSize = 500;
+  const collected: SupabaseStorageFileItem[] = [];
+
+  for (let page = 0; page < 4; page++) {
+    const { data, error } = await ctx.client.storage.from(SUPABASE_STORAGE_BUCKET).list(prefix, {
+      limit: pageSize,
+      offset: page * pageSize,
+      sortBy: { column: 'created_at', order: 'desc' },
+    });
+
+    if (error || !data || data.length === 0) break;
+
+    for (const item of data) {
+      if (!item.name || item.name === '.emptyFolderPlaceholder' || item.id === null) continue;
+      collected.push({
+        name: displayPrefix ? `${displayPrefix}${item.name}` : item.name,
+        path: `${prefix}/${item.name}`,
+        id: item.id || undefined,
+        size: Number((item.metadata as any)?.size || 0),
+        mimeType: (item.metadata as any)?.mimetype || undefined,
+        createdAt: item.created_at || undefined,
+        updatedAt: item.updated_at || undefined,
+      });
+    }
+
+    if (data.length < pageSize) break;
+  }
+
+  return collected;
 }
 
 export async function listUserFilesFromSupabaseStorage(): Promise<SupabaseStorageFileItem[]> {
   const ctx = await getAuthedContext();
   if (!ctx) return [];
 
-  const { data, error } = await ctx.client.storage
-    .from(SUPABASE_STORAGE_BUCKET)
-    .list(ctx.user.id, {
+  const [rootRes, audioFiles] = await Promise.all([
+    ctx.client.storage.from(SUPABASE_STORAGE_BUCKET).list(ctx.user.id, {
       limit: 100,
       offset: 0,
       sortBy: { column: 'created_at', order: 'desc' },
-    });
+    }),
+    listAllAudioItemsFromBucket(ctx, 'audio/').catch(() => [] as SupabaseStorageFileItem[]),
+  ]);
 
-  if (error) {
-    throw new Error(`تعذر جلب قائمة الملفات من Supabase Storage: ${error.message}`);
+  if (rootRes.error) {
+    throw new Error(`تعذر جلب قائمة الملفات من Supabase Storage: ${rootRes.error.message}`);
   }
 
-  return (data || [])
-    .filter((item) => item.name && item.name !== '.emptyFolderPlaceholder')
+  const rootFiles: SupabaseStorageFileItem[] = (rootRes.data || [])
+    .filter((item) => item.name && item.name !== '.emptyFolderPlaceholder' && item.id !== null)
     .map((item) => ({
       name: item.name,
       path: `${ctx.user.id}/${item.name}`,
@@ -147,6 +256,12 @@ export async function listUserFilesFromSupabaseStorage(): Promise<SupabaseStorag
       createdAt: item.created_at || undefined,
       updatedAt: item.updated_at || undefined,
     }));
+
+  return [...rootFiles, ...audioFiles].sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return tb - ta;
+  });
 }
 
 export async function downloadFileFromSupabaseStorage(
@@ -180,6 +295,44 @@ export async function downloadFileFromSupabaseStorage(
   return data;
 }
 
+/**
+ * Downloads an audio file from the private `german-learning` Supabase Storage bucket
+ * and ensures the returned Blob carries the true detected audio MIME type so HTMLAudioElement
+ * can play MP3, WAV, M4A, OGG, WEBM, AAC, and FLAC directly.
+ */
+export async function fetchPlayableAudioFromSupabaseStorage(
+  storagePath: string,
+  fileName?: string,
+  mimeHint?: string
+): Promise<{ blob: Blob; mimeType: string }> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يجب تسجيل الدخول لتشغيل الملفات الصوتية من السحابة.');
+  }
+
+  const { data, error } = await ctx.client.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .download(storagePath);
+
+  if (error || !data) {
+    throw new Error(`تعذر تحميل الملف الصوتي: ${error?.message || 'غير موجود'}`);
+  }
+
+  const detectedMime = await detectActualMimeType(data, fileName || storagePath);
+  const resolvedMime =
+    detectedMime && detectedMime !== 'application/octet-stream'
+      ? detectedMime
+      : mimeHint || 'audio/mpeg';
+
+  const typedBlob =
+    data.type === resolvedMime ? data : new Blob([data], { type: resolvedMime });
+
+  return {
+    blob: typedBlob,
+    mimeType: resolvedMime,
+  };
+}
+
 export async function deleteFileFromSupabaseStorage(storagePath: string): Promise<void> {
   const ctx = await getAuthedContext();
   if (!ctx || !storagePath) return;
@@ -191,6 +344,8 @@ export async function deleteFileFromSupabaseStorage(storagePath: string): Promis
   if (error) {
     throw new Error(`تعذر حذف الملف من Supabase Storage: ${error.message}`);
   }
+
+  invalidateSupabaseAudioIndexCache();
 }
 
 /**
@@ -423,6 +578,32 @@ export async function pushAllWordsToSupabase(words: SavedWord[]): Promise<void> 
   } catch (err: any) {
     console.error('Supabase pushAllWords failed:', err?.message || err);
     notifySync('error', err?.message || 'فشل مزامنة المفردات مع Supabase');
+  }
+}
+
+export async function pushWordsBatchToSupabase(words: SavedWord[]): Promise<{
+  attempted: boolean;
+  synced: boolean;
+  error?: string;
+}> {
+  try {
+    const ctx = await getAuthedContext();
+    if (!ctx || words.length === 0) {
+      return { attempted: false, synced: false };
+    }
+    notifySync('syncing');
+    const rows = words.map((w) => mapWordToRow(ctx.user.id, w));
+    const { error } = await ctx.client
+      .from('saved_vocabulary')
+      .upsert(rows, { onConflict: 'user_id,id' });
+    if (error) throw error;
+    notifySync('synced');
+    return { attempted: true, synced: true };
+  } catch (err: any) {
+    const msg = err?.message || 'فشل مزامنة المفردات مع Supabase';
+    console.error('Supabase pushWordsBatch failed:', msg);
+    notifySync('error', msg);
+    return { attempted: true, synced: false, error: msg };
   }
 }
 
@@ -716,3 +897,821 @@ export async function syncAllWithSupabase(local: {
     return null;
   }
 }
+
+/**
+ * Manually uploads raw text (or an existing GermanTextPassage) to the private
+ * `german-learning` Supabase Storage bucket and optionally updates `saved_texts`.
+ * Throws a descriptive Arabic error on auth/storage/DB failure so the UI can show it.
+ */
+export async function uploadTextManuallyToSupabase(params: {
+  title: string;
+  content: string;
+  fileName?: string;
+  passage?: GermanTextPassage;
+}): Promise<{
+  storagePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+}> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع الملف أو النص إلى السحابة.');
+  }
+
+  const trimmedContent = params.content.trim();
+  if (!trimmedContent) {
+    throw new Error('المحتوى النصي فارغ ولا يمكن رفعه إلى Supabase.');
+  }
+
+  const baseName = sanitizeStorageFileName(
+    (params.fileName || params.title || 'german_text').replace(/\.txt$/i, '')
+  );
+  const finalFileName = baseName.endsWith('.txt') ? baseName : `${baseName}.txt`;
+  const storagePath = `${ctx.user.id}/${Date.now()}_${finalFileName}`;
+  const blob = new Blob([trimmedContent], { type: 'text/plain;charset=utf-8' });
+
+  notifySync('syncing');
+  try {
+    const { error: uploadErr } = await ctx.client.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(storagePath, blob, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'text/plain',
+      });
+
+    if (uploadErr) {
+      throw new Error(`فشل الرفع إلى Supabase Storage: ${uploadErr.message}`);
+    }
+
+    if (params.passage) {
+      const updatedPassage: GermanTextPassage = {
+        ...params.passage,
+        storagePath,
+        fileName: finalFileName,
+        fileSize: blob.size,
+        mimeType: 'text/plain',
+        updatedAt: new Date().toISOString(),
+      };
+      const { error: dbErr } = await ctx.client
+        .from('saved_texts')
+        .upsert(mapPassageToRow(ctx.user.id, updatedPassage), { onConflict: 'user_id,id' });
+      if (dbErr) {
+        throw new Error(`تم رفع الملف للحاوية لكن فشل تحديث قاعدة البيانات: ${dbErr.message}`);
+      }
+    }
+
+    notifySync('synced');
+    return {
+      storagePath,
+      fileName: finalFileName,
+      fileSize: blob.size,
+      mimeType: 'text/plain',
+    };
+  } catch (err: any) {
+    const msg = err?.message || 'تعذر الرفع اليدوي إلى Supabase.';
+    notifySync('error', msg);
+    throw new Error(msg);
+  }
+}
+
+/**
+ * Manually pushes all local IndexedDB/localStorage data (texts, vocabulary, history, settings)
+ * to Supabase Postgres, throwing a clear error if not signed in or if any upsert fails.
+ */
+export async function pushAllLocalDataManuallyToSupabase(local: {
+  texts: GermanTextPassage[];
+  words: SavedWord[];
+  history: ReadingHistoryEntry[];
+  settings: ReadingSettings;
+  stats: ListeningStats;
+  activeTextId: string;
+}): Promise<{
+  textsCount: number;
+  wordsCount: number;
+  historyCount: number;
+}> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع البيانات المحلية إلى السحابة.');
+  }
+
+  notifySync('syncing');
+  try {
+    if (local.texts.length > 0) {
+      const { error } = await ctx.client
+        .from('saved_texts')
+        .upsert(local.texts.map((t) => mapPassageToRow(ctx.user.id, t)), {
+          onConflict: 'user_id,id',
+        });
+      if (error) throw new Error(`فشل رفع النصوص: ${error.message}`);
+    }
+
+    if (local.words.length > 0) {
+      const { error } = await ctx.client
+        .from('saved_vocabulary')
+        .upsert(local.words.map((w) => mapWordToRow(ctx.user.id, w)), {
+          onConflict: 'user_id,id',
+        });
+      if (error) throw new Error(`فشل رفع المفردات: ${error.message}`);
+    }
+
+    if (local.history.length > 0) {
+      const { error } = await ctx.client.from('reading_history').upsert(
+        local.history.map((h) => ({
+          user_id: ctx.user.id,
+          text_id: h.textId,
+          title: h.title,
+          level: h.level,
+          last_sentence_index: h.lastSentenceIndex,
+          total_sentences: h.totalSentences,
+          last_read_at: h.lastReadAt,
+        })),
+        { onConflict: 'user_id,text_id' }
+      );
+      if (error) throw new Error(`فشل رفع سجل القراءة: ${error.message}`);
+    }
+
+    const { error: settingsErr } = await ctx.client.from('user_settings').upsert(
+      {
+        user_id: ctx.user.id,
+        settings: local.settings,
+        stats: local.stats,
+        active_text_id: local.activeTextId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+    if (settingsErr) throw new Error(`فشل رفع الإعدادات: ${settingsErr.message}`);
+
+    notifySync('synced');
+    return {
+      textsCount: local.texts.length,
+      wordsCount: local.words.length,
+      historyCount: local.history.length,
+    };
+  } catch (err: any) {
+    const msg = err?.message || 'تعذر رفع البيانات إلى Supabase.';
+    notifySync('error', msg);
+    throw new Error(msg);
+  }
+}
+
+// =============================================================
+// AUDIO-ONLY UPLOAD FROM LOCAL INDEXEDDB CACHE (NAMED BY TEXT)
+// =============================================================
+
+function isMimeRejectedError(message: string): boolean {
+  return isBucketMimeConfigError(message);
+}
+
+/**
+ * Uploads ONLY the binary audio file from a single IndexedDB cache record
+ * using its true detected audio MIME type (`audio/mpeg`, `audio/wav`, etc.)
+ * to `german-learning/<userId>/audio/<text>.<ext>`.
+ * Skips uploading if a matching audio word/phrase already exists in Supabase Storage.
+ */
+export async function uploadSingleAudioCacheRecordToSupabase(
+  record: IndexedDbAudioRecord,
+  overrideFileName?: string,
+  preloadedIndex?: Map<string, SupabaseStorageFileItem>
+): Promise<{
+  storagePath: string;
+  fileName: string;
+  size: number;
+  mimeType: string;
+  skippedExisting: boolean;
+}> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع الملفات الصوتية إلى السحابة.');
+  }
+
+  if (!(record.blob instanceof Blob) || record.blob.size < 60) {
+    throw new Error(`الملف الصوتي الخاص بـ «${record.text}» غير صالح أو فارغ.`);
+  }
+
+  // Skip re-uploading if this word/phrase is already stored in Supabase Storage
+  const indexMap = preloadedIndex || (await getAudioIndexMap(ctx, { forceRefresh: true }));
+  const existing =
+    findMatchingAudioEntryInMap(indexMap, record.text) ||
+    (overrideFileName ? findMatchingAudioEntryInMap(indexMap, overrideFileName) : undefined);
+
+  if (existing) {
+    return {
+      storagePath: existing.path,
+      fileName: existing.name,
+      size: existing.size || record.blob.size,
+      mimeType: existing.mimeType || record.mimeType || 'audio/mpeg',
+      skippedExisting: true,
+    };
+  }
+
+  const detectedMime = await detectActualMimeType(
+    record.blob,
+    overrideFileName || (record.mimeType?.includes('wav') ? 'audio.wav' : 'audio.mp3')
+  );
+  let preferredMime =
+    detectedMime !== 'application/octet-stream'
+      ? detectedMime
+      : record.mimeType || record.blob.type || 'audio/mpeg';
+
+  const rawFileName =
+    overrideFileName || buildAudioFileNameFromText(record.text, preferredMime, record.audioHash);
+  const { preservedName, asciiFallbackName } = preserveUploadFilename(rawFileName);
+
+  const attemptUpload = async (path: string, contentType: string, upsert: boolean) => {
+    const { error } = await ctx.client.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(path, record.blob, {
+        cacheControl: '3600',
+        upsert,
+        contentType,
+      });
+    return error;
+  };
+
+  let activeFileName = preservedName;
+  let storagePath = `${ctx.user.id}/audio/${activeFileName}`;
+  let uploadErr = await attemptUpload(storagePath, preferredMime, true);
+
+  if (uploadErr && isInvalidStorageKeyError(uploadErr.message) && asciiFallbackName !== preservedName) {
+    activeFileName = asciiFallbackName;
+    storagePath = `${ctx.user.id}/audio/${activeFileName}`;
+    uploadErr = await attemptUpload(storagePath, preferredMime, true);
+  }
+
+  const altMime = getAlternateAudioMimeType(preferredMime);
+  if (uploadErr && altMime && isMimeRejectedError(uploadErr.message)) {
+    const altErr = await attemptUpload(storagePath, altMime, true);
+    if (!altErr) {
+      preferredMime = altMime;
+      uploadErr = null;
+    }
+  }
+
+  // Fallback if an older bucket policy allows INSERT but lacks UPDATE (needed by upsert: true)
+  if (
+    uploadErr &&
+    (uploadErr.message.toLowerCase().includes('row-level security') ||
+      uploadErr.message.toLowerCase().includes('policy'))
+  ) {
+    const dot = activeFileName.lastIndexOf('.');
+    const base = dot > 0 ? activeFileName.slice(0, dot) : activeFileName;
+    const ext = dot > 0 ? activeFileName.slice(dot) : '.mp3';
+    const fallbackName = `${base}_${record.audioHash.slice(0, 6)}${ext}`;
+    const fallbackPath = `${ctx.user.id}/audio/${fallbackName}`;
+    const fallbackErr = await attemptUpload(fallbackPath, preferredMime, false);
+    if (!fallbackErr) {
+      const uploadedEntry: SupabaseStorageFileItem = {
+        name: fallbackName,
+        path: fallbackPath,
+        size: record.blob.size,
+        mimeType: preferredMime,
+      };
+      registerAudioEntryInMap(indexMap, uploadedEntry, record.text);
+      if (!preloadedIndex) invalidateSupabaseAudioIndexCache();
+      return {
+        storagePath: fallbackPath,
+        fileName: fallbackName,
+        size: record.blob.size,
+        mimeType: preferredMime,
+        skippedExisting: false,
+      };
+    }
+    uploadErr = fallbackErr;
+  }
+
+  if (uploadErr) {
+    throw new Error(formatSupabaseUploadError(activeFileName, uploadErr.message, preferredMime));
+  }
+
+  const uploadedEntry: SupabaseStorageFileItem = {
+    name: activeFileName,
+    path: storagePath,
+    size: record.blob.size,
+    mimeType: preferredMime,
+  };
+  registerAudioEntryInMap(indexMap, uploadedEntry, record.text);
+  if (!preloadedIndex) {
+    invalidateSupabaseAudioIndexCache();
+  }
+
+  return {
+    storagePath,
+    fileName: activeFileName,
+    size: record.blob.size,
+    mimeType: preferredMime,
+    skippedExisting: false,
+  };
+}
+
+/**
+ * Uploads ONLY new audio files from browser IndexedDB to Supabase Storage,
+ * automatically skipping any word/phrase that already exists in `<userId>/audio/`
+ * so duplicate files are never uploaded again.
+ */
+export async function uploadAllAudioCacheFilesToSupabase(
+  records: IndexedDbAudioRecord[],
+  onProgress?: (progress: { completed: number; total: number; currentFileName: string }) => void
+): Promise<{
+  total: number;
+  uploadedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  uploadedFiles: string[];
+  skippedFiles: string[];
+  errors: string[];
+}> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع الملفات الصوتية إلى السحابة.');
+  }
+
+  if (!records || records.length === 0) {
+    throw new Error('لا توجد ملفات صوتية محفوظة في الكاش المحلي (IndexedDB).');
+  }
+
+  const indexMap = await getAudioIndexMap(ctx, { forceRefresh: true });
+  const usedNames = new Set<string>();
+  const uploadedFiles: string[] = [];
+  const skippedFiles: string[] = [];
+  const errors: string[] = [];
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    const baseFileName = buildAudioFileNameFromText(
+      record.text,
+      record.mimeType || record.blob.type || 'audio/mpeg',
+      record.audioHash
+    );
+    const uniqueFileName = dedupeAudioFileName(baseFileName, usedNames);
+
+    onProgress?.({
+      completed: i,
+      total: records.length,
+      currentFileName: uniqueFileName,
+    });
+
+    try {
+      const res = await uploadSingleAudioCacheRecordToSupabase(record, uniqueFileName, indexMap);
+      if (res.skippedExisting) {
+        skippedFiles.push(res.fileName);
+      } else {
+        uploadedFiles.push(res.fileName);
+      }
+    } catch (err: any) {
+      errors.push(`${uniqueFileName}: ${err?.message || 'خطأ غير معروف'}`);
+    }
+  }
+
+  invalidateSupabaseAudioIndexCache();
+
+  onProgress?.({
+    completed: records.length,
+    total: records.length,
+    currentFileName: '',
+  });
+
+  return {
+    total: records.length,
+    uploadedCount: uploadedFiles.length,
+    skippedCount: skippedFiles.length,
+    failedCount: errors.length,
+    uploadedFiles,
+    skippedFiles,
+    errors,
+  };
+}
+
+// =============================================================
+// AUDIO LOOKUP & DEDUPLICATION IN SUPABASE STORAGE
+// =============================================================
+
+const AUDIO_INDEX_TTL_MS = 60_000;
+let cachedAudioIndex: {
+  userId: string;
+  fetchedAt: number;
+  byStem: Map<string, SupabaseStorageFileItem>;
+} | null = null;
+let inFlightAudioIndexFetch: Promise<Map<string, SupabaseStorageFileItem>> | null = null;
+const dedupedUsersThisSession = new Set<string>();
+let inFlightDedupePromise: Promise<SupabaseAudioDedupeResult> | null = null;
+
+export function invalidateSupabaseAudioIndexCache(): void {
+  cachedAudioIndex = null;
+}
+
+/**
+ * Generates normalized lookup keys (exact lowercased + transliterated German ASCII)
+ * for matching a spoken word/phrase against files inside `<userId>/audio/`.
+ */
+export function buildAudioLookupStems(textOrFileName: string): string[] {
+  const cleaned = (textOrFileName || '')
+    .normalize('NFC')
+    .trim()
+    .replace(/\.(mp3|wav|m4a|ogg|webm|aac|flac)$/i, '')
+    .replace(/^[.,!?;:„"“»«()\s]+|[.,!?;:„"“»«()\s]+$/g, '');
+
+  if (!cleaned) return [];
+
+  const exactStem = cleaned
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[/\\?%*:|"<>#]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  const transliterated = cleaned
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae')
+    .replace(/Ö/g, 'Oe')
+    .replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '');
+
+  const stems: string[] = [];
+  if (exactStem) stems.push(exactStem);
+  if (transliterated && transliterated !== exactStem) stems.push(transliterated);
+  return stems;
+}
+
+function getCanonicalGroupKeyFromStem(stemText: string): string {
+  const stems = buildAudioLookupStems(stemText);
+  return stems[stems.length - 1] || stems[0] || '';
+}
+
+function registerAudioEntryInMap(
+  byStem: Map<string, SupabaseStorageFileItem>,
+  entry: SupabaseStorageFileItem,
+  extraText?: string
+): void {
+  const stems = new Set<string>([
+    ...buildAudioLookupStems(entry.name),
+    ...(extraText ? buildAudioLookupStems(extraText) : []),
+  ]);
+  for (const stem of stems) {
+    const existing = byStem.get(stem);
+    if (
+      !existing ||
+      (entry.name.toLowerCase().endsWith('.mp3') && !existing.name.toLowerCase().endsWith('.mp3'))
+    ) {
+      byStem.set(stem, entry);
+    }
+  }
+}
+
+function findMatchingAudioEntryInMap(
+  byStem: Map<string, SupabaseStorageFileItem>,
+  textOrFileName: string
+): SupabaseStorageFileItem | undefined {
+  const stems = buildAudioLookupStems(textOrFileName);
+  for (const stem of stems) {
+    const hit = byStem.get(stem);
+    if (hit) return hit;
+  }
+
+  // Also match stripped duplicate-suffix base (e.g. uploading "sehr (1).mp3" when "sehr.mp3" exists)
+  const rawBase = (textOrFileName || '')
+    .normalize('NFC')
+    .trim()
+    .replace(/\.(mp3|wav|m4a|ogg|webm|aac|flac)$/i, '');
+  const stripped = stripDuplicateSuffixes(rawBase);
+  if (stripped && stripped.base !== rawBase) {
+    for (const stem of buildAudioLookupStems(stripped.base)) {
+      const hit = byStem.get(stem);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
+function stripDuplicateSuffixes(rawBase: string): {
+  base: string;
+  hasExplicitDupMarker: boolean;
+  numericSuffixBase: string | null;
+} {
+  let base = rawBase.trim();
+  let hasExplicitDupMarker = false;
+
+  // 1. OS duplicate suffix like "sehr (1)" or "sehr (2)"
+  const parenMatch = base.match(/^(.+?)\s*\(\d+\)$/);
+  if (parenMatch && parenMatch[1].trim()) {
+    base = parenMatch[1].trim();
+    hasExplicitDupMarker = true;
+  }
+
+  // 2. Leading timestamp prefix like "1731567890123_sehr"
+  const leadTsMatch = base.match(/^\d{10,14}_(.+)$/);
+  if (leadTsMatch && leadTsMatch[1].trim()) {
+    base = leadTsMatch[1].trim();
+    hasExplicitDupMarker = true;
+  }
+
+  // 3. Trailing timestamp suffix like "sehr_1731567890123"
+  const trailTsMatch = base.match(/^(.+?)_\d{10,14}$/);
+  if (trailTsMatch && trailTsMatch[1].trim()) {
+    base = trailTsMatch[1].trim();
+    hasExplicitDupMarker = true;
+  }
+
+  // 4. Trailing 6-8 char hex hash containing digits like "sehr_a3f91c"
+  const hexMatch = base.match(/^(.+?)_(?=[0-9a-f]*\d)[0-9a-f]{6,8}$/i);
+  if (hexMatch && hexMatch[1].trim()) {
+    base = hexMatch[1].trim();
+    hasExplicitDupMarker = true;
+  }
+
+  // 5. Trailing short counter like "sehr_2" (only merged if clean base also exists in bucket)
+  let numericSuffixBase: string | null = null;
+  const numMatch = base.match(/^(.+?)_(\d{1,3})$/);
+  if (numMatch && numMatch[1].trim()) {
+    numericSuffixBase = numMatch[1].trim();
+  }
+
+  return { base, hasExplicitDupMarker, numericSuffixBase };
+}
+
+function scoreAudioFileToKeep(item: SupabaseStorageFileItem, hasDupSuffix: boolean): number {
+  const leafName = item.name.replace(/^audio\//, '');
+  const lower = leafName.toLowerCase();
+  let score = 0;
+
+  if ((item.size || 0) > 0) score += 100_000;
+  if (!hasDupSuffix) score += 10_000;
+
+  if (lower.endsWith('.mp3')) score += 1_000;
+  else if (lower.endsWith('.wav')) score += 500;
+  else if (lower.endsWith('.m4a')) score += 300;
+  else score += 100;
+
+  // Prefer original German umlauts/ß and shorter clean names over transliterated copies
+  if (/[äöüß]/i.test(leafName)) score += 50;
+  score += Math.max(0, 120 - leafName.length);
+
+  return score;
+}
+
+export interface SupabaseAudioDuplicatePlan {
+  groupsWithDuplicates: number;
+  kept: SupabaseStorageFileItem[];
+  toDelete: SupabaseStorageFileItem[];
+}
+
+/**
+ * Pure planner that identifies duplicate audio files for the same German word/phrase
+ * (different extensions, casing, umlaut/ASCII transliteration, or `_2`/`_hash`/`(1)` copies)
+ * and keeps strictly ONE best file per word.
+ */
+export function planAudioDuplicatesCleanup(
+  items: SupabaseStorageFileItem[]
+): SupabaseAudioDuplicatePlan {
+  const parsed = items.map((item) => {
+    const leafName = item.name.replace(/^audio\//, '');
+    const rawBase = leafName.replace(/\.(mp3|wav|m4a|ogg|webm|aac|flac)$/i, '').normalize('NFC').trim();
+    const { base, hasExplicitDupMarker, numericSuffixBase } = stripDuplicateSuffixes(rawBase);
+    const canonicalBaseKey = getCanonicalGroupKeyFromStem(base);
+    const numericGroupKey = numericSuffixBase ? getCanonicalGroupKeyFromStem(numericSuffixBase) : null;
+    return {
+      item,
+      hasExplicitDupMarker,
+      canonicalBaseKey,
+      numericGroupKey,
+    };
+  });
+
+  // Collect clean base keys so `sehr_2.mp3` only merges with `sehr.mp3` when `sehr` exists
+  // (preventing false merges of e.g. `Lektion_1.mp3` and `Lektion_2.mp3`).
+  const existingBaseKeys = new Set<string>();
+  for (const entry of parsed) {
+    if (entry.canonicalBaseKey && !entry.numericGroupKey) {
+      existingBaseKeys.add(entry.canonicalBaseKey);
+    }
+  }
+
+  const groups = new Map<
+    string,
+    Array<{ item: SupabaseStorageFileItem; hasDupSuffix: boolean }>
+  >();
+
+  for (const entry of parsed) {
+    let groupKey = entry.canonicalBaseKey;
+    let hasDupSuffix = entry.hasExplicitDupMarker;
+
+    if (entry.numericGroupKey && existingBaseKeys.has(entry.numericGroupKey)) {
+      groupKey = entry.numericGroupKey;
+      hasDupSuffix = true;
+    }
+
+    if (!groupKey) {
+      groupKey = entry.item.path;
+    }
+
+    const list = groups.get(groupKey) || [];
+    list.push({ item: entry.item, hasDupSuffix });
+    groups.set(groupKey, list);
+  }
+
+  const kept: SupabaseStorageFileItem[] = [];
+  const toDelete: SupabaseStorageFileItem[] = [];
+  let groupsWithDuplicates = 0;
+
+  for (const [, group] of groups) {
+    if (group.length <= 1) {
+      if (group[0]) kept.push(group[0].item);
+      continue;
+    }
+
+    groupsWithDuplicates += 1;
+    const sorted = [...group].sort((a, b) => {
+      const diff =
+        scoreAudioFileToKeep(b.item, b.hasDupSuffix) -
+        scoreAudioFileToKeep(a.item, a.hasDupSuffix);
+      if (diff !== 0) return diff;
+      const ta = a.item.createdAt ? new Date(a.item.createdAt).getTime() : 0;
+      const tb = b.item.createdAt ? new Date(b.item.createdAt).getTime() : 0;
+      return tb - ta;
+    });
+
+    kept.push(sorted[0].item);
+    for (let i = 1; i < sorted.length; i++) {
+      toDelete.push(sorted[i].item);
+    }
+  }
+
+  return {
+    groupsWithDuplicates,
+    kept,
+    toDelete,
+  };
+}
+
+export interface SupabaseAudioDedupeResult {
+  totalScanned: number;
+  groupsWithDuplicates: number;
+  deletedCount: number;
+  keptCount: number;
+  deletedFiles: string[];
+}
+
+/**
+ * Scans `german-learning/<userId>/audio/` in Supabase Storage, deletes all duplicate
+ * word/phrase audio files, and keeps strictly ONE copy per word.
+ */
+export async function deduplicateSupabaseAudioStorage(): Promise<SupabaseAudioDedupeResult> {
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لفحص وحذف الكلمات الصوتية المكررة.');
+  }
+
+  const audioItems = await listAllAudioItemsFromBucket(ctx);
+  const plan = planAudioDuplicatesCleanup(audioItems);
+
+  if (plan.toDelete.length === 0) {
+    dedupedUsersThisSession.add(ctx.user.id);
+    return {
+      totalScanned: audioItems.length,
+      groupsWithDuplicates: 0,
+      deletedCount: 0,
+      keptCount: plan.kept.length,
+      deletedFiles: [],
+    };
+  }
+
+  const pathsToRemove = plan.toDelete.map((item) => item.path);
+  const deletedFiles: string[] = [];
+
+  for (let i = 0; i < pathsToRemove.length; i += 100) {
+    const chunk = pathsToRemove.slice(i, i + 100);
+    const { error } = await ctx.client.storage.from(SUPABASE_STORAGE_BUCKET).remove(chunk);
+    if (error) {
+      throw new Error(`تعذر حذف الملفات المكررة من Supabase Storage: ${error.message}`);
+    }
+    for (let j = 0; j < chunk.length; j++) {
+      const deletedItem = plan.toDelete[i + j];
+      if (deletedItem) deletedFiles.push(deletedItem.name);
+    }
+  }
+
+  invalidateSupabaseAudioIndexCache();
+  dedupedUsersThisSession.add(ctx.user.id);
+
+  return {
+    totalScanned: audioItems.length,
+    groupsWithDuplicates: plan.groupsWithDuplicates,
+    deletedCount: deletedFiles.length,
+    keptCount: plan.kept.length,
+    deletedFiles,
+  };
+}
+
+/**
+ * Runs duplicate cleanup at most once per signed-in user session without throwing,
+ * so stale duplicates already stored in Supabase are cleaned up automatically.
+ */
+export async function ensureSupabaseAudioDeduplicatedOnce(): Promise<SupabaseAudioDedupeResult | null> {
+  try {
+    const ctx = await getAuthedContext();
+    if (!ctx) return null;
+    if (dedupedUsersThisSession.has(ctx.user.id)) return null;
+    if (inFlightDedupePromise) return await inFlightDedupePromise;
+
+    inFlightDedupePromise = deduplicateSupabaseAudioStorage().finally(() => {
+      inFlightDedupePromise = null;
+    });
+    return await inFlightDedupePromise;
+  } catch (err) {
+    console.warn('[SupabaseAudioDedupe] Skipped auto cleanup:', err);
+    return null;
+  }
+}
+
+async function getAudioIndexMap(
+  ctx: NonNullable<Awaited<ReturnType<typeof getAuthedContext>>>,
+  options?: { forceRefresh?: boolean }
+): Promise<Map<string, SupabaseStorageFileItem>> {
+  const now = Date.now();
+  if (
+    !options?.forceRefresh &&
+    cachedAudioIndex &&
+    cachedAudioIndex.userId === ctx.user.id &&
+    now - cachedAudioIndex.fetchedAt < AUDIO_INDEX_TTL_MS
+  ) {
+    return cachedAudioIndex.byStem;
+  }
+
+  if (inFlightAudioIndexFetch && !options?.forceRefresh) {
+    return inFlightAudioIndexFetch;
+  }
+
+  const fetchPromise = (async () => {
+    const byStem = new Map<string, SupabaseStorageFileItem>();
+    const items = await listAllAudioItemsFromBucket(ctx);
+    for (const entry of items) {
+      registerAudioEntryInMap(byStem, entry);
+    }
+
+    cachedAudioIndex = {
+      userId: ctx.user.id,
+      fetchedAt: Date.now(),
+      byStem,
+    };
+    return byStem;
+  })().finally(() => {
+    if (inFlightAudioIndexFetch === fetchPromise) {
+      inFlightAudioIndexFetch = null;
+    }
+  });
+
+  inFlightAudioIndexFetch = fetchPromise;
+  return fetchPromise;
+}
+
+/**
+ * Checks if audio for `text` (word or sentence) already exists in Supabase Storage
+ * (`german-learning/<userId>/audio/`). If found, downloads and returns a playable Blob
+ * without calling ElevenLabs. Returns null when not signed in or not found.
+ */
+export async function findAudioInSupabaseStorageByText(text: string): Promise<{
+  blob: Blob;
+  mimeType: string;
+  fileName: string;
+  storagePath: string;
+} | null> {
+  try {
+    const ctx = await getAuthedContext();
+    if (!ctx) return null;
+
+    const byStem = await getAudioIndexMap(ctx);
+    const matched = findMatchingAudioEntryInMap(byStem, text);
+    if (!matched) return null;
+
+    const { blob, mimeType } = await fetchPlayableAudioFromSupabaseStorage(
+      matched.path,
+      matched.name,
+      matched.mimeType
+    );
+
+    if (!blob || blob.size < 64) return null;
+
+    return {
+      blob,
+      mimeType,
+      fileName: matched.name,
+      storagePath: matched.path,
+    };
+  } catch (err) {
+    console.warn('[SupabaseAudioLookup] Fallback to ElevenLabs after lookup error:', err);
+    return null;
+  }
+}
+
+

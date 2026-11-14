@@ -10,11 +10,14 @@ import {
   clearReadingHistoryInSupabase,
   deletePassageFromSupabase,
   deleteWordFromSupabase,
+  ensureSupabaseAudioDeduplicatedOnce,
+  pushAllLocalDataManuallyToSupabase,
   pushAllWordsToSupabase,
   pushPassageToSupabase,
   pushReadingHistoryToSupabase,
   pushUserSettingsToSupabase,
   pushWordToSupabase,
+  pushWordsBatchToSupabase,
   syncAllWithSupabase,
 } from './supabaseSync';
 
@@ -45,6 +48,7 @@ export const DEFAULT_SETTINGS: ReadingSettings = {
   pitch: 0,
   defaultLevel: 'A2',
   readingMode: 'continuous',
+  readingUnit: 'sentence',
   autoResumeAfterWord: false,
   autoScroll: true,
   sentencePauseMs: 350,
@@ -590,7 +594,10 @@ export function addSavedWord(word: Omit<SavedWord, 'id' | 'dateSaved'>): SavedWo
 
   const newWord: SavedWord = {
     ...word,
-    id: existingIdx >= 0 ? words[existingIdx].id : 'word-' + Date.now(),
+    id:
+      existingIdx >= 0
+        ? words[existingIdx].id
+        : `word-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     dateSaved: new Date().toISOString(),
   };
 
@@ -609,6 +616,126 @@ export function addSavedWord(word: Omit<SavedWord, 'id' | 'dateSaved'>): SavedWo
   void pushWordToSupabase(newWord);
   updateStats({ wordsLookedUp: 1 });
   return newWord;
+}
+
+export interface BatchSaveWordsResult {
+  addedCount: number;
+  updatedCount: number;
+  totalSavedInBatch: number;
+  cloudAttempted: boolean;
+  cloudSynced: boolean;
+  cloudError?: string;
+}
+
+export async function addSavedWordsBatch(
+  entries: Omit<SavedWord, 'id' | 'dateSaved'>[],
+  options?: { syncToSupabase?: boolean }
+): Promise<BatchSaveWordsResult> {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error('قائمة الكلمات فارغة. يرجى إدخال كلمة واحدة على الأقل.');
+  }
+
+  await initBrowserStorage();
+
+  const nextWords = [...wordsCache];
+  const touchedWords: SavedWord[] = [];
+  const baseTime = Date.now();
+  let addedCount = 0;
+  let updatedCount = 0;
+
+  entries.forEach((entry, idx) => {
+    const cleanGerman = entry.germanWord.trim();
+    if (!cleanGerman) return;
+
+    const existingIdx = nextWords.findIndex(
+      (w) => w.germanWord.trim().toLowerCase() === cleanGerman.toLowerCase()
+    );
+
+    const record: SavedWord = {
+      ...entry,
+      germanWord: cleanGerman,
+      id:
+        existingIdx >= 0
+          ? nextWords[existingIdx].id
+          : `word-${baseTime}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+      dateSaved: new Date(baseTime + idx).toISOString(),
+    };
+
+    if (existingIdx >= 0) {
+      nextWords[existingIdx] = record;
+      updatedCount += 1;
+    } else {
+      nextWords.unshift(record);
+      addedCount += 1;
+    }
+
+    const touchedExistingIdx = touchedWords.findIndex((t) => t.id === record.id);
+    if (touchedExistingIdx >= 0) {
+      touchedWords[touchedExistingIdx] = record;
+    } else {
+      touchedWords.push(record);
+    }
+  });
+
+  if (touchedWords.length === 0) {
+    throw new Error('لم يتم العثور على كلمات ألمانية صالحة للحفظ.');
+  }
+
+  if (isIndexedDbSupported()) {
+    await idbReplaceAll(STORES.VOCABULARY, nextWords);
+  }
+
+  wordsCache = nextWords;
+  if (addedCount > 0) {
+    updateStats({ wordsLookedUp: addedCount });
+  }
+
+  const shouldSync = options?.syncToSupabase !== false;
+  const cloud = shouldSync
+    ? await pushWordsBatchToSupabase(touchedWords)
+    : { attempted: false, synced: false };
+
+  return {
+    addedCount,
+    updatedCount,
+    totalSavedInBatch: touchedWords.length,
+    cloudAttempted: cloud.attempted,
+    cloudSynced: cloud.synced,
+    cloudError: cloud.error,
+  };
+}
+
+export async function pushSavedWordsManuallyToSupabase(): Promise<{
+  count: number;
+}> {
+  await initBrowserStorage();
+  if (wordsCache.length === 0) {
+    throw new Error('لا توجد كلمات محفوظة لرفعها إلى Supabase.');
+  }
+  const res = await pushWordsBatchToSupabase(wordsCache);
+  if (!res.attempted) {
+    throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع المفردات إلى السحابة.');
+  }
+  if (!res.synced) {
+    throw new Error(res.error || 'فشل رفع المفردات إلى Supabase.');
+  }
+  return { count: wordsCache.length };
+}
+
+export async function pushAllLocalSnapshotToSupabase(): Promise<{
+  textsCount: number;
+  wordsCount: number;
+  historyCount: number;
+}> {
+  await initBrowserStorage();
+  return pushAllLocalDataManuallyToSupabase({
+    texts: textsCache,
+    words: wordsCache,
+    history: historyCache,
+    settings: getStoredSettings(),
+    stats: statsCache,
+    activeTextId: getActiveTextId(),
+  });
 }
 
 export function removeSavedWord(id: string): void {
@@ -749,6 +876,9 @@ export async function hydrateFromSupabase(): Promise<boolean> {
       ]),
     ]);
   }
+
+  // Automatically deduplicate any duplicate audio files already stored in Supabase Storage
+  void ensureSupabaseAudioDeduplicatedOnce();
 
   return true;
 }

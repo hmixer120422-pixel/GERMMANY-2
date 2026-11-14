@@ -1,5 +1,3 @@
-import type { ElevenLabsVoiceOption } from '../types/index.js';
-
 export const DEFAULT_ELEVENLABS_MODEL = 'eleven_multilingual_v2';
 export const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = 'mp3_44100_128';
 export const DEFAULT_FEMALE_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
@@ -9,7 +7,7 @@ export const DEFAULT_MALE_VOICE_ID = 'ErXwobaYiN019PkySvjV';
  * Fallback display catalog used ONLY before live ElevenLabs voices are fetched
  * or when ELEVENLABS_API_KEY is not yet configured on the server.
  */
-export const VERIFIED_ELEVENLABS_VOICES: ElevenLabsVoiceOption[] = [
+export const VERIFIED_ELEVENLABS_VOICES = [
   {
     voiceId: 'EXAVITQu4vr4xnSDxMaL',
     name: 'Sarah (German Female)',

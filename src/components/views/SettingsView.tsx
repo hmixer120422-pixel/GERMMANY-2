@@ -22,6 +22,8 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  Upload,
+  Download,
 } from 'lucide-react';
 import { ElevenLabsVoiceOption, ReadingSettings, SupabaseSyncState, VoiceGender } from '../../types';
 import {
@@ -34,10 +36,19 @@ import { indexedDbCache, IndexedDbAudioRecord } from '../../services/indexedDbCa
 import {
   clearReadingHistoryInIndexedDb,
   getBrowserDataSummary,
+  pushAllLocalSnapshotToSupabase,
 } from '../../services/storage';
 import { signOutFromSupabase } from '../../services/supabaseClient';
-import { testSupabaseStorageConnection } from '../../services/supabaseSync';
-import { formatBytes } from '../../utils/audioHash';
+import {
+  deduplicateSupabaseAudioStorage,
+  isBucketMimeConfigError,
+  SUPABASE_AUDIO_BUCKET_SQL,
+  testSupabaseStorageConnection,
+  uploadAllAudioCacheFilesToSupabase,
+  uploadFileToSupabaseStorage,
+  uploadSingleAudioCacheRecordToSupabase,
+} from '../../services/supabaseSync';
+import { buildAudioFileNameFromText, formatBytes } from '../../utils/audioHash';
 
 interface SettingsViewProps {
   settings: ReadingSettings;
@@ -104,10 +115,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [testResultMsg, setTestResultMsg] = useState<string | null>(null);
   const [testErrorMsg, setTestErrorMsg] = useState<string | null>(null);
 
-  // Supabase Auth + Storage verification state
+  // Supabase Auth + Storage verification & manual upload state
   const [testingSupabase, setTestingSupabase] = useState(false);
+  const [manualUploadingSupabase, setManualUploadingSupabase] = useState(false);
   const [supabaseTestMsg, setSupabaseTestMsg] = useState<string | null>(null);
   const [supabaseTestErr, setSupabaseTestErr] = useState<string | null>(null);
+  const settingsCloudFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // IndexedDB Audio-Only Upload State (each file named after its text)
+  const [uploadingAudioCache, setUploadingAudioCache] = useState(false);
+  const [dedupingAudio, setDedupingAudio] = useState(false);
+  const [uploadingSingleAudioHash, setUploadingSingleAudioHash] = useState<string | null>(null);
+  const [audioUploadProgress, setAudioUploadProgress] = useState<{
+    completed: number;
+    total: number;
+    currentFileName: string;
+  } | null>(null);
+  const [audioUploadMsg, setAudioUploadMsg] = useState<string | null>(null);
+  const [audioUploadErr, setAudioUploadErr] = useState<string | null>(null);
+  const [audioUploadDetails, setAudioUploadDetails] = useState<string[]>([]);
 
   const speeds = [0.5, 0.75, 0.85, 1.0, 1.15, 1.25, 1.5, 2.0];
   const timerOptions = [
@@ -176,14 +202,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onDataCleared?.();
   };
 
-  const verifyRealAudioPlayback = (base64Mp3: string): Promise<number> => {
-    return new Promise((resolve, reject) => {
-      const byteString = atob(base64Mp3);
-      const bytes = new Uint8Array(byteString.length);
-      for (let i = 0; i < byteString.length; i++) {
-        bytes[i] = byteString.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+  const verifyRealAudioPlayback = async (
+    base64Audio: string,
+    contentType?: string
+  ): Promise<number> => {
+    const byteString = atob(base64Audio);
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) {
+      bytes[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: contentType || 'audio/mpeg' });
+
+    return await new Promise((resolve, reject) => {
       const url = URL.createObjectURL(blob);
       const audioEl = new Audio(url);
       let started = false;
@@ -264,7 +294,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         throw new Error('لم يعد الخادم ملف MP3 قابلاً للتشغيل.');
       }
 
-      const durationSec = await verifyRealAudioPlayback(json.data.audioBase64);
+      const durationSec = await verifyRealAudioPlayback(
+        json.data.audioBase64,
+        json.data.contentType
+      );
       setElevenLabsConfigured(true);
       setTestSteps({
         authVerified: true,
@@ -315,10 +348,183 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const handleManualPushAllToSupabase = async () => {
+    setManualUploadingSupabase(true);
+    setSupabaseTestMsg(null);
+    setSupabaseTestErr(null);
+    try {
+      const res = await pushAllLocalSnapshotToSupabase();
+      setSupabaseTestMsg(
+        `✓ تم رفع بياناتك يدوياً إلى Supabase بنجاح: ${res.textsCount} نص، ${res.wordsCount} مفردة، و ${res.historyCount} سجل قراءة.`
+      );
+    } catch (err: any) {
+      setSupabaseTestErr(err?.message || 'فشل الرفع اليدوي للبيانات إلى Supabase.');
+    } finally {
+      setManualUploadingSupabase(false);
+    }
+  };
+
+  const handleManualFileUploadToSupabase = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    setManualUploadingSupabase(true);
+    setSupabaseTestMsg(null);
+    setSupabaseTestErr(null);
+    try {
+      if (file.size === 0) throw new Error('الملف المختار فارغ.');
+      if (file.size > 25 * 1024 * 1024) {
+        throw new Error(`حجم الملف (${formatBytes(file.size)}) يتجاوز الحد الأقصى 25 MB.`);
+      }
+      const uploaded = await uploadFileToSupabaseStorage(file);
+      if (!uploaded) {
+        throw new Error('يرجى تسجيل الدخول بحساب Supabase أولاً لرفع الملفات.');
+      }
+      if (uploaded.skippedExisting) {
+        setSupabaseTestMsg(
+          `✓ الملف الصوتي «${uploaded.fileName}» محفوظ مسبقاً في Supabase Storage — تم تخطي إعادة الرفع لتجنب التكرار.`
+        );
+      } else {
+        setSupabaseTestMsg(
+          `✓ تم رفع الملف «${uploaded.fileName}» (${formatBytes(uploaded.fileSize)}) يدوياً إلى حاوية german-learning بنجاح.`
+        );
+      }
+    } catch (err: any) {
+      setSupabaseTestErr(err?.message || 'فشل رفع الملف يدوياً إلى Supabase Storage.');
+    } finally {
+      setManualUploadingSupabase(false);
+      input.value = '';
+    }
+  };
+
+  const handleUploadAllAudioCacheToSupabase = async () => {
+    setAudioUploadMsg(null);
+    setAudioUploadErr(null);
+    setAudioUploadDetails([]);
+    setUploadingAudioCache(true);
+
+    try {
+      const records = await indexedDbCache.getAllAudioRecords();
+      if (records.length === 0) {
+        throw new Error('لا توجد ملفات صوتية محفوظة في الكاش المحلي (IndexedDB).');
+      }
+
+      const res = await uploadAllAudioCacheFilesToSupabase(records, (progress) => {
+        setAudioUploadProgress(progress);
+      });
+
+      if (res.failedCount === 0) {
+        if (res.uploadedCount > 0 && res.skippedCount > 0) {
+          setAudioUploadMsg(
+            `✓ تم رفع ${res.uploadedCount} ملف صوتي جديد إلى Supabase، وتم تخطي ${res.skippedCount} كلمة لأنها محفوظة مسبقاً بدون تكرار.`
+          );
+          setAudioUploadDetails(res.uploadedFiles.slice(0, 8));
+        } else if (res.uploadedCount > 0) {
+          setAudioUploadMsg(
+            `✓ تم رفع ${res.uploadedCount} ملف صوتي فقط إلى حاوية german-learning/audio في Supabase بنجاح (كل ملف مسمى باسم النص الخاص به).`
+          );
+          setAudioUploadDetails(res.uploadedFiles.slice(0, 8));
+        } else {
+          setAudioUploadMsg(
+            `✓ جميع الكلمات الصوتية (${res.skippedCount}) محفوظة مسبقاً في Supabase Storage — لم تتم إعادة رفع أي كلمة مكررة.`
+          );
+          setAudioUploadDetails(res.skippedFiles.slice(0, 8));
+        }
+      } else if (res.uploadedCount > 0 || res.skippedCount > 0) {
+        setAudioUploadErr(
+          `تم رفع ${res.uploadedCount} وتخطي ${res.skippedCount} موجودة مسبقاً، بينما تعذر رفع ${res.failedCount} ملف.`
+        );
+        setAudioUploadDetails(res.errors.slice(0, 6));
+      } else {
+        throw new Error(res.errors[0] || 'فشل رفع الملفات الصوتية إلى Supabase.');
+      }
+    } catch (err: any) {
+      setAudioUploadErr(err?.message || 'تعذر رفع الملفات الصوتية إلى Supabase.');
+    } finally {
+      setUploadingAudioCache(false);
+      setAudioUploadProgress(null);
+    }
+  };
+
+  const handleDeduplicateSupabaseAudio = async () => {
+    setAudioUploadMsg(null);
+    setAudioUploadErr(null);
+    setAudioUploadDetails([]);
+    setDedupingAudio(true);
+    try {
+      const res = await deduplicateSupabaseAudioStorage();
+      if (res.deletedCount > 0) {
+        setAudioUploadMsg(
+          `✓ تم فحص ${res.totalScanned} ملف صوتي في Supabase وحذف ${res.deletedCount} ملف مكرر مع الإبقاء على نسخة واحدة فقط لكل كلمة (${res.keptCount} كلمة).`
+        );
+        setAudioUploadDetails(res.deletedFiles.slice(0, 8));
+      } else {
+        setAudioUploadMsg(
+          `✓ تم فحص ${res.totalScanned} ملف صوتي في Supabase — لا توجد كلمات مكررة (كل كلمة محفوظة بنسخة واحدة فقط).`
+        );
+      }
+    } catch (err: any) {
+      setAudioUploadErr(err?.message || 'تعذر فحص وحذف الملفات الصوتية المكررة.');
+    } finally {
+      setDedupingAudio(false);
+    }
+  };
+
+  const handleUploadSingleAudioCacheToSupabase = async (audioHash: string) => {
+    setAudioUploadMsg(null);
+    setAudioUploadErr(null);
+    setAudioUploadDetails([]);
+    setUploadingSingleAudioHash(audioHash);
+
+    try {
+      const record = await indexedDbCache.getAudioRecordByHash(audioHash);
+      if (!record) {
+        throw new Error('لم يتم العثور على الملف الصوتي في الكاش المحلي.');
+      }
+      const res = await uploadSingleAudioCacheRecordToSupabase(record);
+      if (res.skippedExisting) {
+        setAudioUploadMsg(
+          `✓ الكلمة «${res.fileName}» محفوظة مسبقاً في Supabase Storage — تم تخطي إعادة الرفع لتجنب التكرار.`
+        );
+      } else {
+        setAudioUploadMsg(
+          `✓ تم رفع الملف الصوتي «${res.fileName}» (${formatBytes(res.size)}) فقط إلى Supabase بنجاح.`
+        );
+      }
+    } catch (err: any) {
+      setAudioUploadErr(err?.message || 'فشل رفع الملف الصوتي إلى Supabase.');
+    } finally {
+      setUploadingSingleAudioHash(null);
+    }
+  };
+
+  const handleDownloadAudioCacheEntry = async (audioHash: string) => {
+    setAudioUploadErr(null);
+    try {
+      const record = await indexedDbCache.getAudioRecordByHash(audioHash);
+      if (!record) {
+        throw new Error('لم يتم العثور على الملف الصوتي في الكاش المحلي.');
+      }
+      const fileName = buildAudioFileNameFromText(
+        record.text,
+        record.mimeType || record.blob.type || 'audio/mpeg',
+        record.audioHash
+      );
+      const url = URL.createObjectURL(record.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setAudioUploadErr(err?.message || 'تعذر تحميل الملف الصوتي.');
+    }
+  };
+
   const handleCopySqlSnippet = () => {
-    const snippet = `-- Run /supabase/schema.sql inside Supabase Dashboard -> SQL Editor
--- Creates saved_texts, saved_vocabulary, reading_history, user_settings + private bucket 'german-learning' with RLS policies.`;
-    navigator.clipboard?.writeText(snippet).catch(() => {});
+    navigator.clipboard?.writeText(SUPABASE_AUDIO_BUCKET_SQL).catch(() => {});
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2000);
   };
@@ -397,7 +603,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {[
                 { label: '1. مصادقة API', ok: testSteps.authVerified },
                 { label: '2. توفر الصوت', ok: testSteps.voiceAvailable },
-                { label: '3. توليد MP3 حقيقي', ok: testSteps.audioGenerated },
+                { label: '3. توليد MP3 فعلي', ok: testSteps.audioGenerated },
                 { label: '4. التشغيل الفعلي', ok: testSteps.audioPlayed },
               ].map((step) => (
                 <div
@@ -516,7 +722,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       voice: v.name,
                       voiceGender: v.gender,
                       elevenLabsVoiceId: v.voiceId,
-                      elevenLabsModel: DEFAULT_ELEVENLABS_MODEL,
+                      elevenLabsModel: settings.elevenLabsModel || DEFAULT_ELEVENLABS_MODEL,
                     })
                   }
                   className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3 ${
@@ -541,7 +747,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </span>
                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                        ElevenLabs Multilingual v2
+                        {settings.elevenLabsModel === 'eleven_turbo_v2_5'
+                          ? 'Turbo v2.5 (de)'
+                          : 'Multilingual v2 (Hochdeutsch)'}
                       </span>
                       {v.isDefaultFemale && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
@@ -553,6 +761,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               );
             })}
+          </div>
+
+          {/* German Pronunciation Engine Strictness / Model */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">
+                  إجبار النطق الألماني الفصيح (Hochdeutsch) للكلمات المفردة:
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  يُرسل التطبيق سياقاً ألمانياً إلزامياً مع كل كلمة مفردة وثباتاً عالياً (0.85) لمنع النطق الإنجليزي.
+                </span>
+              </div>
+              <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ elevenLabsModel: 'eleven_multilingual_v2' })}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    (settings.elevenLabsModel || DEFAULT_ELEVENLABS_MODEL) === 'eleven_multilingual_v2'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Multilingual v2 (الأكثر طبيعية)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ elevenLabsModel: 'eleven_turbo_v2_5' })}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    settings.elevenLabsModel === 'eleven_turbo_v2_5'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Turbo v2.5 (إجبار صارم language_code=de)
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Speed slider & options */}
@@ -612,6 +858,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="space-y-5">
+            {/* Reading Unit (Sentence-by-Sentence vs Word-by-Word) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+              <div>
+                <span className="font-bold text-sm text-slate-900 dark:text-white block">
+                  وحدة القراءة الصوتية الافتراضية:
+                </span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {settings.readingUnit === 'word'
+                    ? 'قراءة ونطق النص كلمة بكلمة مع تظليل الكلمة النشطة'
+                    : 'قراءة الجملة كاملة ثم الانتقال للجملة التالية (يمكن التبديل من شريط القارئ أيضاً)'}
+                </span>
+              </div>
+              <div className="flex items-center bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button
+                  onClick={() => onUpdateSettings({ readingUnit: 'sentence' })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    (settings.readingUnit || 'sentence') === 'sentence'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  جملة بجملة (افتراضي)
+                </button>
+                <button
+                  onClick={() => onUpdateSettings({ readingUnit: 'word' })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    settings.readingUnit === 'word'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  كلمة بكلمة (تتبع كل كلمة)
+                </button>
+              </div>
+            </div>
+
             {/* Reading Mode */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
               <div>
@@ -806,7 +1088,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                ref={settingsCloudFileInputRef}
+                type="file"
+                accept=".txt,.pdf,.docx,.csv,.mp3,.wav,.m4a,.ogg,.webm,.aac,.flac,audio/*"
+                onChange={handleManualFileUploadToSupabase}
+                className="hidden"
+              />
               {supabaseUserEmail ? (
                 <>
                   {onSyncWithSupabase && (
@@ -822,6 +1111,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <span>{supabaseSyncState === 'syncing' ? 'جارٍ المزامنة...' : 'مزامنة الآن'}</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={handleManualPushAllToSupabase}
+                    disabled={manualUploadingSupabase}
+                    className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5"
+                    title="رفع كافة النصوص والمفردات وسجل القراءة إلى Supabase يدوياً"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{manualUploadingSupabase ? 'جارٍ الرفع...' : 'رفع البيانات يدوياً'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => settingsCloudFileInputRef.current?.click()}
+                    disabled={manualUploadingSupabase}
+                    className="px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5"
+                    title="اختيار ملف من جهازك ورفعه يدوياً إلى حاوية german-learning"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>رفع ملف للحاوية</span>
+                  </button>
                   <button
                     onClick={handleTestSupabaseStorage}
                     disabled={testingSupabase}
@@ -877,8 +1186,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
 
           {supabaseTestErr && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300">
-              ✕ {supabaseTestErr}
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300 space-y-2">
+              <p>✕ {supabaseTestErr}</p>
+              {isBucketMimeConfigError(supabaseTestErr) && (
+                <button
+                  type="button"
+                  onClick={handleCopySqlSnippet}
+                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200 text-[11px] font-bold inline-flex items-center gap-1"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>{copiedSql ? 'تم نسخ SQL!' : 'نسخ SQL تحديث صيغ الصوت'}</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -908,7 +1227,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1"
                   >
                     <Copy className="w-3 h-3" />
-                    <span>{copiedSql ? 'تم النسخ' : 'نسخ الملاحظة'}</span>
+                    <span>{copiedSql ? 'تم نسخ SQL!' : 'نسخ SQL تحديث صيغ الصوت'}</span>
                   </button>
                 </div>
                 <ol className="list-decimal list-inside space-y-1 leading-relaxed">
@@ -944,64 +1263,203 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            {localStats.count > 0 && (
-              <div>
-                {confirmClearLocal ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleClearLocalCache}
-                      className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold"
-                    >
-                      تأكيد المسح بالكامل
-                    </button>
-                    <button
-                      onClick={() => setConfirmClearLocal(false)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold"
-                    >
-                      إلغاء
-                    </button>
-                  </div>
-                ) : (
+            {(localStats.count > 0 || supabaseUserEmail) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {supabaseUserEmail && (
                   <button
-                    onClick={() => setConfirmClearLocal(true)}
-                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1"
+                    type="button"
+                    onClick={handleDeduplicateSupabaseAudio}
+                    disabled={dedupingAudio || uploadingAudioCache}
+                    className="px-3 py-1.5 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
+                    title="فحص ملفات الصوت في Supabase وحذف الكلمات المكررة مع الإبقاء على نسخة واحدة لكل كلمة"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>مسح الكاش المحلي</span>
+                    <span>{dedupingAudio ? 'جارٍ التنظيف...' : 'مسح الكلمات المكررة بـ Supabase'}</span>
                   </button>
+                )}
+
+                {localStats.count > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleUploadAllAudioCacheToSupabase}
+                      disabled={uploadingAudioCache || dedupingAudio || Boolean(uploadingSingleAudioHash)}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                      title="رفع الملفات الصوتية الجديدة فقط إلى Supabase Storage وتخطي الكلمات المحفوظة مسبقاً"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>
+                        {uploadingAudioCache && audioUploadProgress
+                          ? `جارٍ رفع ${audioUploadProgress.completed} / ${audioUploadProgress.total}...`
+                          : 'رفع الجديد فقط إلى Supabase'}
+                      </span>
+                    </button>
+
+                    {confirmClearLocal ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleClearLocalCache}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold"
+                        >
+                          تأكيد المسح بالكامل
+                        </button>
+                        <button
+                          onClick={() => setConfirmClearLocal(false)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmClearLocal(true)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>مسح الكاش المحلي</span>
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
           </div>
+
+          {audioUploadProgress && audioUploadProgress.currentFileName && (
+            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-200 flex items-center justify-between gap-2">
+              <span>جارٍ رفع الملف الصوتي فقط إلى Supabase:</span>
+              <code className="font-mono font-bold truncate max-w-xs" dir="ltr">
+                {audioUploadProgress.currentFileName}
+              </code>
+            </div>
+          )}
+
+          {audioUploadMsg && (
+            <div
+              role="status"
+              className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-300 space-y-1.5"
+            >
+              <p>{audioUploadMsg}</p>
+              {audioUploadDetails.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5" dir="ltr">
+                  {audioUploadDetails.map((name, i) => (
+                    <code
+                      key={i}
+                      className="px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-emerald-200 dark:border-emerald-800 text-[11px] font-mono"
+                    >
+                      {name}
+                    </code>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {audioUploadErr && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300 space-y-2"
+            >
+              <p>✕ {audioUploadErr}</p>
+              {audioUploadDetails.length > 0 && (
+                <ul className="list-disc list-inside font-normal space-y-0.5">
+                  {audioUploadDetails.map((detail, i) => (
+                    <li key={i} dir="ltr">
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(isBucketMimeConfigError(audioUploadErr) ||
+                audioUploadDetails.some((d) => isBucketMimeConfigError(d))) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-rose-200/70 dark:border-rose-800/70 font-normal">
+                  <span className="text-[11px]">
+                    شغّل SQL تحديث الحاوية <code>german-learning</code> في Supabase SQL Editor لتفعيل صيغ MP3 / WAV / M4A / OGG / WEBM / AAC / FLAC:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopySqlSnippet}
+                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200 font-bold text-[11px] flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{copiedSql ? 'تم نسخ SQL!' : 'نسخ SQL تحديث صيغ الصوت'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {localEntries.length === 0 ? (
             <p className="text-xs text-slate-400">
               لا توجد مقاطع صوتية مخزنة في متصفحك بعد. عند استماعك لأي كلمة أو جملة عبر ElevenLabs يتم حفظها هنا للتشغيل الفوري.
             </p>
           ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto rounded-2xl border border-slate-100 dark:border-slate-800">
-              {localEntries.slice(0, 30).map((entry) => (
-                <div
-                  key={entry.audioHash}
-                  className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="font-german font-semibold text-slate-800 dark:text-slate-100 truncate" dir="ltr">
-                      {entry.text}
-                    </p>
-                    <span className="text-[11px] text-slate-400">
-                      {entry.sourceType} • {formatBytes(entry.size)}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteLocalEntry(entry.audioHash)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600"
-                    title="حذف من هذا المتصفح"
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto rounded-2xl border border-slate-100 dark:border-slate-800">
+              {localEntries.slice(0, 100).map((entry) => {
+                const audioFileName = buildAudioFileNameFromText(
+                  entry.text,
+                  entry.mimeType || 'audio/mpeg',
+                  entry.audioHash
+                );
+                const isUploadingThis = uploadingSingleAudioHash === entry.audioHash;
+
+                return (
+                  <div
+                    key={entry.audioHash}
+                    className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p className="font-german font-semibold text-slate-800 dark:text-slate-100 truncate" dir="ltr">
+                        {entry.text}
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
+                        <code
+                          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] truncate max-w-[240px]"
+                          dir="ltr"
+                          title="اسم الملف الصوتي عند الرفع أو التحميل"
+                        >
+                          {audioFileName}
+                        </code>
+                        <span>
+                          {entry.mimeType?.includes('wav') ? 'WAV' : 'MP3'} • {entry.sourceType} • {formatBytes(entry.size)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleUploadSingleAudioCacheToSupabase(entry.audioHash)}
+                        disabled={uploadingAudioCache || isUploadingThis}
+                        className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] flex items-center gap-1 disabled:opacity-50"
+                        title={`رفع ${audioFileName} إلى Supabase`}
+                      >
+                        <Upload className={`w-3.5 h-3.5 ${isUploadingThis ? 'animate-pulse' : ''}`} />
+                        <span className="hidden sm:inline">
+                          {isUploadingThis ? 'جارٍ الرفع...' : 'رفع لـ Supabase'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadAudioCacheEntry(entry.audioHash)}
+                        className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800"
+                        title={`تحميل ${audioFileName}`}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteLocalEntry(entry.audioHash)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600"
+                        title="حذف من هذا المتصفح"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

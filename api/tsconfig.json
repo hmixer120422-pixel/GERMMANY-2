@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowJs": true,
     "typeRoots": ["../node_modules/@types"],
     "types": ["node"],
     "lib": ["ES2022"],
@@ -13,8 +14,12 @@
   },
   "include": [
     "./**/*.ts",
-    "../src/services/elevenLabsConstants.ts",
+    "../src/services/elevenLabsConstants.js",
+    "../src/services/elevenLabsConstants.d.ts",
+    "../src/types/index.ts",
     "../src/utils/audioHash.ts",
+    "../src/data/germanCoreGlossary.js",
+    "../src/data/germanCoreGlossary.d.ts",
     "../src/data/germanDictionary.ts"
   ]
 }

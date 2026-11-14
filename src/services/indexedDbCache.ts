@@ -180,6 +180,50 @@ class IndexedDbAudioCache {
     });
   }
 
+  public async getAudioRecordByHash(audioHash: string): Promise<IndexedDbAudioRecord | null> {
+    if (!this.isSupported()) return null;
+    try {
+      const db = await this.openDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(audioHash);
+        req.onsuccess = () => {
+          const record = req.result as IndexedDbAudioRecord | undefined;
+          if (!record || !(record.blob instanceof Blob) || record.blob.size < 128) {
+            resolve(null);
+            return;
+          }
+          resolve(record);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  public async getAllAudioRecords(): Promise<IndexedDbAudioRecord[]> {
+    if (!this.isSupported()) return [];
+    try {
+      const db = await this.openDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const all = ((req.result as IndexedDbAudioRecord[]) || []).filter(
+            (r) => r && r.blob instanceof Blob && r.blob.size >= 128
+          );
+          resolve(all.sort((a, b) => b.lastAccessedAt - a.lastAccessedAt));
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return [];
+    }
+  }
+
   public async listEntries(): Promise<Omit<IndexedDbAudioRecord, 'blob'>[]> {
     if (!this.isSupported()) return [];
     try {

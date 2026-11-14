@@ -12,8 +12,11 @@ import {
   EyeOff,
   AlertCircle,
   RefreshCw,
+  Cloud,
+  X,
 } from 'lucide-react';
 import { GermanTextPassage, ReadingSettings } from '../../types';
+import { lookupDictionaryEntry } from '../../data/germanDictionary';
 import { audioEngine, PlaybackState } from '../../services/audioEngine';
 import { WordDictionaryModal } from '../modals/WordDictionaryModal';
 import { SentenceModal } from '../modals/SentenceModal';
@@ -21,8 +24,12 @@ import {
   addTextPassage,
   recordReadingHistoryProgress,
   updateStats,
+  updateTextPassage,
 } from '../../services/storage';
-import { uploadFileToSupabaseStorage } from '../../services/supabaseSync';
+import {
+  uploadFileToSupabaseStorage,
+  uploadTextManuallyToSupabase,
+} from '../../services/supabaseSync';
 import { decodeGermanTextBuffer, formatBytes, splitGermanSentences } from '../../utils/audioHash';
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // matches the `german-learning` bucket limit
@@ -63,6 +70,10 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [playbackState, setPlaybackState] = useState<PlaybackState>(audioEngine.getState());
   const [audioError, setAudioError] = useState<string | null>(audioEngine.getLastError());
   const [activeSentenceIndex, setActiveSentenceIndex] = useState<number>(0);
+  const [activeWordPos, setActiveWordPos] = useState<{ sentenceIndex: number; wordIndex: number }>({
+    sentenceIndex: 0,
+    wordIndex: -1,
+  });
 
   // Modals state
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
@@ -71,6 +82,17 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
   const [selectedSentenceForModal, setSelectedSentenceForModal] = useState<string | null>(null);
   const [isSentenceModalOpen, setIsSentenceModalOpen] = useState<boolean>(false);
+
+  // Instant inline word translation bar (stays visible after closing modal too)
+  const [clickedWordPreview, setClickedWordPreview] = useState<{
+    word: string;
+    loading: boolean;
+    translation: string | null;
+    partOfSpeech?: string;
+    article?: string;
+    ipa?: string;
+  } | null>(null);
+  const clickedWordReqIdRef = useRef<number>(0);
 
   // Reader display options
   const [showArabicTranslation, setShowArabicTranslation] = useState<boolean>(true);
@@ -89,9 +111,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   // Document upload state
   const [inputText, setInputText] = useState<string>('');
   const [inputTitle, setInputTitle] = useState<string>('');
+  const [uploadToSupabaseOnImport, setUploadToSupabaseOnImport] = useState<boolean>(true);
+  const [isUploadingPassageToCloud, setIsUploadingPassageToCloud] = useState<boolean>(false);
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importNotice, setImportNotice] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+  const [importNotice, setImportNotice] = useState<{ kind: 'success' | 'warning' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (!importNotice) return;
@@ -112,6 +136,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       const startIdx = passage.lastReadSentenceIndex || 0;
       audioEngine.loadSentences(passage.sentences, startIdx);
       setActiveSentenceIndex(startIdx);
+      setActiveWordPos({ sentenceIndex: startIdx, wordIndex: -1 });
       setAudioError(null);
     }
   }, [passage]);
@@ -142,11 +167,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         });
       }
     });
+    const unsubWord = audioEngine.onWordChange((pos) => {
+      setActiveWordPos(pos);
+    });
 
     return () => {
       unsubState();
       unsubError();
       unsubSentence();
+      unsubWord();
     };
   }, [settings.autoScroll, passage]);
 
@@ -180,11 +209,63 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Word Click Handler (Pronounce ONLY that word via ElevenLabs + show Arabic dictionary)
+  // Word Click Handler (Pronounce ONLY that word via ElevenLabs + show instant Arabic translation)
   const handleWordClick = (e: React.MouseEvent, word: string, sentence: string) => {
     e.stopPropagation();
     const clean = word.replace(/[.,!?;:„"“»«()]/g, '').trim();
     if (!clean) return;
+
+    const reqId = ++clickedWordReqIdRef.current;
+    const offlineHit = lookupDictionaryEntry(clean);
+    if (offlineHit) {
+      setClickedWordPreview({
+        word: clean,
+        loading: false,
+        translation: offlineHit.contextMeaningArabic,
+        partOfSpeech: offlineHit.partOfSpeech,
+        article: offlineHit.nounInfo?.article,
+        ipa: offlineHit.ipa,
+      });
+    } else {
+      setClickedWordPreview({
+        word: clean,
+        loading: true,
+        translation: null,
+      });
+      fetch('/api/dictionary/explain-word', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: clean,
+          sentence,
+          level: passage?.level || settings.defaultLevel || 'A2',
+        }),
+      })
+        .then((res) => res.json().catch(() => null))
+        .then((json) => {
+          if (reqId !== clickedWordReqIdRef.current) return;
+          if (json?.success && json?.data) {
+            setClickedWordPreview({
+              word: clean,
+              loading: false,
+              translation: json.data.contextMeaningArabic || null,
+              partOfSpeech: json.data.partOfSpeech,
+              article: json.data.nounInfo?.article,
+              ipa: json.data.ipa,
+            });
+          } else {
+            setClickedWordPreview((prev) =>
+              prev && prev.word === clean ? { ...prev, loading: false } : prev
+            );
+          }
+        })
+        .catch(() => {
+          if (reqId !== clickedWordReqIdRef.current) return;
+          setClickedWordPreview((prev) =>
+            prev && prev.word === clean ? { ...prev, loading: false } : prev
+          );
+        });
+    }
 
     setSelectedWord(clean);
     setSelectedSentenceContext(sentence);
@@ -279,12 +360,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         mimeType: string;
       } | null = null;
       let cloudFailure: string | null = null;
-      try {
-        storageMeta = await uploadFileToSupabaseStorage(file);
-      } catch (uploadErr: any) {
-        // The text is still imported locally; the notice below tells the user why it is local-only.
-        console.warn('Supabase storage upload skipped/failed:', uploadErr?.message || uploadErr);
-        cloudFailure = uploadErr?.message || 'خطأ غير معروف';
+      if (uploadToSupabaseOnImport) {
+        try {
+          storageMeta = await uploadFileToSupabaseStorage(file);
+        } catch (uploadErr: any) {
+          // The text is still imported locally; the notice below tells the user why it is local-only.
+          console.warn('Supabase storage upload skipped/failed:', uploadErr?.message || uploadErr);
+          cloudFailure = uploadErr?.message || 'خطأ غير معروف';
+        }
       }
 
       const newPassage: GermanTextPassage = {
@@ -311,7 +394,12 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       switchTab('reading');
 
       const summary = `«${file.name}» — ${parsed.sentences.length} جملة، ${parsed.wordCount} كلمة`;
-      if (storageMeta) {
+      if (!uploadToSupabaseOnImport) {
+        setImportNotice({
+          kind: 'success',
+          text: `✓ تم الاستيراد محلياً بنجاح: ${summary}. (يمكنك رفعه إلى Supabase يدوياً في أي وقت).`,
+        });
+      } else if (storageMeta) {
         setImportNotice({
           kind: 'success',
           text: `✓ تم الاستيراد بنجاح: ${summary}. وتم حفظ نسخة من الملف في السحابة (Supabase).`,
@@ -334,32 +422,101 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     }
   };
 
-  const handleManualImport = () => {
+  const handleManualImport = async () => {
     if (!inputText.trim()) return;
 
-    const parsedSentences = splitGermanSentences(inputText.trim());
-    const sentences = parsedSentences.length > 0 ? parsedSentences : [inputText.trim()];
+    const cleanText = inputText.trim();
+    const cleanTitle = inputTitle.trim() || 'نص ألماني مخصص';
+    const parsedSentences = splitGermanSentences(cleanText);
+    const sentences = parsedSentences.length > 0 ? parsedSentences : [cleanText];
 
     const newPassage: GermanTextPassage = {
       id: 'import-manual-' + Date.now(),
-      title: inputTitle.trim() || 'نص ألماني مخصص',
+      title: cleanTitle,
       authorInfo: 'نص مُدخل يدوياً (محلي)',
       level: settings.defaultLevel || 'A2',
-      germanText: inputText.trim(),
+      germanText: cleanText,
       sentences: sentences,
       arabicSummary: '',
       keyVocabulary: [],
-      wordCount: inputText.split(/\s+/).filter(Boolean).length,
+      wordCount: cleanText.split(/\s+/).filter(Boolean).length,
       style: 'Custom Text',
       topic: 'مستند مخصص',
       createdAt: new Date().toISOString(),
     };
+
+    if (uploadToSupabaseOnImport) {
+      setIsImporting(true);
+      try {
+        const uploaded = await uploadTextManuallyToSupabase({
+          title: cleanTitle,
+          content: cleanText,
+          fileName: `${cleanTitle}.txt`,
+        });
+        newPassage.storagePath = uploaded.storagePath;
+        newPassage.fileName = uploaded.fileName;
+        newPassage.fileSize = uploaded.fileSize;
+        newPassage.mimeType = uploaded.mimeType;
+        newPassage.authorInfo = 'نص مُدخل يدوياً (سحابي + محلي)';
+        setImportNotice({
+          kind: 'success',
+          text: `✓ تم حفظ النص «${cleanTitle}» محلياً ورفعه إلى حاوية german-learning في Supabase بنجاح.`,
+        });
+      } catch (cloudErr: any) {
+        setImportNotice({
+          kind: 'warning',
+          text: `✓ تم حفظ النص «${cleanTitle}» محلياً في المتصفح. تعذر الرفع إلى Supabase: ${
+            cloudErr?.message || 'يرجى تسجيل الدخول بحساب Supabase'
+          }`,
+        });
+      } finally {
+        setIsImporting(false);
+      }
+    } else {
+      setImportNotice({
+        kind: 'success',
+        text: `✓ تم حفظ النص «${cleanTitle}» محلياً في المتصفح.`,
+      });
+    }
 
     addTextPassage(newPassage);
     onSelectPassage(newPassage);
     setInputText('');
     setInputTitle('');
     switchTab('reading');
+  };
+
+  const handleManualUploadActivePassage = async () => {
+    if (!passage) return;
+    setIsUploadingPassageToCloud(true);
+    try {
+      const uploaded = await uploadTextManuallyToSupabase({
+        title: passage.title,
+        content: passage.germanText,
+        fileName: passage.fileName || `${passage.title}.txt`,
+        passage,
+      });
+      const updated: GermanTextPassage = {
+        ...passage,
+        storagePath: uploaded.storagePath,
+        fileName: uploaded.fileName,
+        fileSize: uploaded.fileSize,
+        mimeType: uploaded.mimeType,
+      };
+      updateTextPassage(updated);
+      onSelectPassage(updated);
+      setImportNotice({
+        kind: 'success',
+        text: `✓ تم رفع النص «${passage.title}» (${formatBytes(uploaded.fileSize)}) يدوياً إلى Supabase بنجاح.`,
+      });
+    } catch (err: any) {
+      setImportNotice({
+        kind: 'error',
+        text: `✕ فشل الرفع اليدوي إلى Supabase: ${err?.message || 'يرجى تسجيل الدخول بحساب Supabase أولاً.'}`,
+      });
+    } finally {
+      setIsUploadingPassageToCloud(false);
+    }
   };
 
   if (!passage && activeTab !== 'import') {
@@ -500,6 +657,20 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               </button>
             )}
 
+            {/* Manual Upload Current Passage to Supabase */}
+            <button
+              type="button"
+              onClick={handleManualUploadActivePassage}
+              disabled={isUploadingPassageToCloud}
+              className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 transition-all"
+              title="رفع هذا النص يدوياً إلى سحابة Supabase (german-learning)"
+            >
+              <Cloud className="w-4 h-4" />
+              <span className="hidden sm:inline">
+                {isUploadingPassageToCloud ? 'جارٍ الرفع...' : 'رفع إلى Supabase'}
+              </span>
+            </button>
+
             {/* Concentration Mode Button */}
             <button
               onClick={() => onUpdateSettings({ concentrationMode: !settings.concentrationMode })}
@@ -550,10 +721,12 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
       {importNotice && (
         <div
-          role="status"
+          role={importNotice.kind === 'error' ? 'alert' : 'status'}
           className={`p-3 rounded-xl text-xs flex items-start justify-between gap-3 border ${
             importNotice.kind === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+              : importNotice.kind === 'error'
+              ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
               : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
           }`}
         >
@@ -572,6 +745,78 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       {/* READING VIEW */}
       {activeTab === 'reading' && passage && (
         <div className="space-y-6">
+          {/* Instant Inline Translation Bar for the last clicked word */}
+          {clickedWordPreview && (
+            <div
+              className="p-3.5 sm:px-5 rounded-2xl bg-gradient-to-l from-blue-50 to-indigo-50/70 dark:from-slate-800/90 dark:to-slate-900 border border-blue-200 dark:border-blue-800/60 shadow-xs flex flex-wrap items-center justify-between gap-3 animate-in fade-in"
+              role="region"
+              aria-label="الترجمة الفورية للكلمة المختارة"
+            >
+              <div className="flex items-center gap-3 flex-wrap min-w-0">
+                <div className="flex items-center gap-1.5" dir="ltr">
+                  {clickedWordPreview.article && (
+                    <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-xs font-bold">
+                      {clickedWordPreview.article}
+                    </span>
+                  )}
+                  <span className="font-german text-lg font-black text-slate-900 dark:text-white">
+                    {clickedWordPreview.word}
+                  </span>
+                </div>
+                {clickedWordPreview.partOfSpeech && (
+                  <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700">
+                    {clickedWordPreview.partOfSpeech}
+                  </span>
+                )}
+                {clickedWordPreview.ipa && (
+                  <span className="font-mono text-xs text-slate-500 dark:text-slate-400" dir="ltr">
+                    {clickedWordPreview.ipa}
+                  </span>
+                )}
+                <span className="text-slate-400 font-bold">=</span>
+                {clickedWordPreview.loading ? (
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 animate-pulse">
+                    جارٍ جلب الترجمة...
+                  </span>
+                ) : (
+                  <span className="text-sm sm:text-base font-black text-blue-700 dark:text-blue-300 font-arabic">
+                    {clickedWordPreview.translation || 'لم تتوفر ترجمة فورية لهذه الكلمة'}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => audioEngine.playWordOnly(clickedWordPreview.word)}
+                  className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs"
+                  title="إعادة نطق الكلمة بالألمانية الفصحى"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>نطق</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedWord(clickedWordPreview.word);
+                    setIsWordModalOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                >
+                  التفاصيل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClickedWordPreview(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                  aria-label="إغلاق شريط الترجمة"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Main Reading Card */}
           <div
             className={`rounded-3xl border transition-all p-6 sm:p-10 ${
@@ -580,27 +825,54 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 shadow-xs'
             }`}
           >
-            {/* Guide hint */}
-            <div className="mb-6 p-3 rounded-xl bg-blue-50/70 dark:bg-slate-800/60 border border-blue-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+            {/* Guide hint & reading mode choice */}
+            <div className="mb-6 p-3 rounded-xl bg-blue-50/70 dark:bg-slate-800/60 border border-blue-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300">
               <span className="flex items-center gap-1.5">
                 <Info className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>
-                  <strong>نصيحة:</strong> انقر على <strong>أي كلمة</strong> للاستماع لنطقها فقط عبر ElevenLabs ومعرفة معناها بالعربية. انقر على أيقونة الترجمة بجانب الجملة لمعرفة إعرابها.
+                  <strong>نصيحة:</strong> انقر على <strong>أي كلمة</strong> للاستماع لنطقها فقط عبر ElevenLabs ومعرفة معناها بالعربية. اختر طريقة القراءة المناسبة لك:
                 </span>
               </span>
-              <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 hidden md:block">
-                القراءة الحالية: جملة بجملة بصوت ElevenLabs
-              </span>
+              <div
+                className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-blue-200/80 dark:border-slate-700 shrink-0"
+                role="group"
+                aria-label="اختيار طريقة القراءة"
+              >
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ readingUnit: 'sentence' })}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    (settings.readingUnit || 'sentence') === 'sentence'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  جملة بجملة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ readingUnit: 'word' })}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    settings.readingUnit === 'word'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  كلمة بكلمة
+                </button>
+              </div>
             </div>
 
-            {/* German Text with Sentence-by-Sentence Synchronization & Word Click */}
+            {/* German Text with Sentence-by-Sentence & Word-by-Word Synchronization + Word Click */}
             <div
               className={`font-german text-slate-900 dark:text-slate-100 font-medium ${fontSizeClasses[fontSize]}`}
               dir="ltr"
             >
               {passage.sentences.map((sentence, sIdx) => {
                 const isActive = activeSentenceIndex === sIdx;
+                const isWordMode = settings.readingUnit === 'word';
                 const tokens = sentence.split(/(\s+|[.,!?;:„"“»«()]+)/g).filter(Boolean);
+                let wordCounter = -1;
 
                 return (
                   <span
@@ -645,13 +917,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                         return <span key={tIdx}>{token}</span>;
                       }
 
+                      wordCounter += 1;
+                      const isWordActive =
+                        isWordMode &&
+                        activeWordPos.sentenceIndex === sIdx &&
+                        activeWordPos.wordIndex === wordCounter;
+
                       return (
                         <button
                           key={tIdx}
                           type="button"
                           onClick={(e) => handleWordClick(e, token, sentence)}
-                          className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline underline-offset-4 decoration-blue-500/50 transition-colors inline cursor-pointer select-text focus:outline-none"
-                          title="انقر لنطق الكلمة فقط وترجمتها بالعربية"
+                          className={`inline cursor-pointer select-text focus:outline-none transition-colors rounded px-0.5 ${
+                            isWordActive
+                              ? 'bg-emerald-500 text-white font-bold shadow-xs ring-2 ring-emerald-300 dark:ring-emerald-700'
+                              : 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline underline-offset-4 decoration-blue-500/50'
+                          }`}
+                          title="انقر لنطق هذه الكلمة فقط وترجمتها بالعربية"
                         >
                           {token}
                         </button>
@@ -775,12 +1057,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               className="w-full p-4 text-sm font-german bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
               dir="ltr"
             />
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={uploadToSupabaseOnImport}
+                onChange={(e) => setUploadToSupabaseOnImport(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>رفع الملف/النص إلى سحابة Supabase (german-learning) أيضاً (أو اتركه مغلقاً للرفع يدوياً لاحقاً)</span>
+            </label>
             <button
               onClick={handleManualImport}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || isImporting}
               className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs shadow-xs transition-all"
             >
-              استيراد وقراءة في المشغل الآن
+              {isImporting ? 'جارٍ الحفظ والرفع...' : 'استيراد وقراءة في المشغل الآن'}
             </button>
           </div>
         </div>

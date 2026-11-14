@@ -4,6 +4,7 @@ import {
   fetchElevenLabsVoicesServer,
   getElevenLabsApiKey,
   getFallbackVoicesSnapshot,
+  isMissingVoicesReadPermission,
 } from '../_lib/elevenlabs.js';
 import {
   applyApiSecurityHeaders,
@@ -51,10 +52,40 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
     });
   } catch (err: any) {
     const fallback = getFallbackVoicesSnapshot();
+
+    if (isMissingVoicesReadPermission(err)) {
+      return sendJson(res, 200, {
+        success: true,
+        data: {
+          provider: 'elevenlabs',
+          model: DEFAULT_ELEVENLABS_MODEL,
+          elevenLabsConfigured: true,
+          source: 'fallback',
+          voicesReadRestricted: true,
+          notice:
+            'مفتاح ELEVENLABS_API_KEY مفعّل لتوليد الصوت فقط دون صلاحية قراءة الأصوات (voices_read)؛ يتم استخدام الأصوات الألمانية المعتمدة مباشرة.',
+          defaultFemaleVoiceId: fallback.defaultFemaleVoiceId,
+          defaultMaleVoiceId: fallback.defaultMaleVoiceId,
+          voices: fallback.voices,
+        },
+      });
+    }
+
     const status = err instanceof ElevenLabsServiceError ? err.status : 502;
+    console.error('[Vercel /api/elevenlabs/voices] Error:', {
+      status,
+      code: err?.code,
+      errorType: err?.errorType,
+      upstreamStatus: err?.upstreamStatus,
+      requestId: err?.requestId || null,
+      stack: err?.stack,
+    });
     return sendJson(res, status, {
       success: false,
       code: err?.code || 'ELEVENLABS_VOICES_FETCH_FAILED',
+      errorType: err?.errorType || 'voices_fetch_error',
+      upstreamStatus: err?.upstreamStatus ?? null,
+      requestId: err?.requestId ?? null,
       error: err?.message || 'تعذر جلب قائمة الأصوات من ElevenLabs.',
       data: {
         provider: 'elevenlabs',

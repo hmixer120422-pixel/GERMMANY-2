@@ -42,56 +42,60 @@ export const WordDictionaryModal: React.FC<WordDictionaryModalProps> = ({
     const found = savedWords.some((w) => w.germanWord.toLowerCase() === cleanWord.toLowerCase());
     setIsSaved(found);
 
-    // Fetch rich dictionary data
+    // Check instant offline dictionary first, otherwise fetch live online dictionary via server
     let isCancelled = false;
-    setLoading(true);
     setError(null);
     setAudioError(null);
 
-    fetch('/api/dictionary/explain-word', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        word: cleanWord,
-        sentence: sentenceContext,
-        level,
-      }),
-    })
-      .then(async (res) => {
-        const rawText = await res.text();
-        try {
-          return JSON.parse(rawText);
-        } catch {
-          return { success: false, error: 'استجابة غير صالحة' };
-        }
-      })
-      .then((resData) => {
+    import('../../data/germanDictionary')
+      .then(({ lookupDictionaryEntry, analyzeGermanWordLocally }) => {
         if (isCancelled) return;
-        if (resData.success && resData.data) {
-          setData(resData.data);
-        } else {
-          // Fallback to local dictionary
-          import('../../data/germanDictionary').then(({ analyzeGermanWordLocally }) => {
-            if (!isCancelled) {
+        const offlineHit = lookupDictionaryEntry(cleanWord);
+        if (offlineHit) {
+          setData(offlineHit);
+          setLoading(false);
+          return;
+        }
+
+        setLoading(true);
+        fetch('/api/dictionary/explain-word', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            word: cleanWord,
+            sentence: sentenceContext,
+            level,
+          }),
+        })
+          .then(async (res) => {
+            const rawText = await res.text();
+            try {
+              return JSON.parse(rawText);
+            } catch {
+              return { success: false, error: 'استجابة غير صالحة' };
+            }
+          })
+          .then((resData) => {
+            if (isCancelled) return;
+            if (resData.success && resData.data) {
+              setData(resData.data);
+            } else {
               setData(analyzeGermanWordLocally(cleanWord, sentenceContext));
             }
-          }).catch(() => {
-            setError(resData.error || 'تعذر جلب تفاصيل الكلمة');
+          })
+          .catch(() => {
+            if (isCancelled) return;
+            setData(analyzeGermanWordLocally(cleanWord, sentenceContext));
+          })
+          .finally(() => {
+            if (!isCancelled) setLoading(false);
           });
-        }
       })
       .catch((err) => {
-        if (isCancelled) return;
-        import('../../data/germanDictionary').then(({ analyzeGermanWordLocally }) => {
-          if (!isCancelled) {
-            setData(analyzeGermanWordLocally(cleanWord, sentenceContext));
-          }
-        }).catch(() => {
-          setError(err.message || 'حدث خطأ في الاتصال بالمعجم');
-        });
-      })
-      .finally(() => {
-        if (!isCancelled) setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+          setError(err?.message || 'تعذر تحميل بيانات القاموس');
+        }
       });
 
     return () => {

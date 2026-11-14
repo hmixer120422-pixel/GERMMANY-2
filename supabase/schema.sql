@@ -214,12 +214,24 @@ values (
     'text/plain',
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/mp4',
+    'audio/x-m4a',
+    'audio/ogg',
+    'audio/webm',
+    'audio/aac',
+    'audio/flac',
+    'audio/x-flac',
     'application/octet-stream'
   ]
 )
 on conflict (id) do update
 set public = false,
-    file_size_limit = 26214400;
+    file_size_limit = 26214400,
+    allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "Authenticated users can list/read own files in german-learning" on storage.objects;
 create policy "Authenticated users can list/read own files in german-learning"

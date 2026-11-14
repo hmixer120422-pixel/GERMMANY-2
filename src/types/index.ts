@@ -110,6 +110,7 @@ export type VoiceGender = 'female' | 'male';
 
 export type AudioSourceStatus =
   | 'Local Cached Audio'
+  | 'Supabase Cloud Audio'
   | 'Newly Generated ElevenLabs Audio';
 
 export interface ElevenLabsVoiceOption {
@@ -131,6 +132,7 @@ export interface ReadingSettings {
   pitch: number;
   defaultLevel: CEFRLevel;
   readingMode: 'continuous' | 'sentence-step';
+  readingUnit?: 'sentence' | 'word';
   autoResumeAfterWord: boolean;
   autoScroll: boolean;
   sentencePauseMs: number;

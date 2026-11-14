@@ -1,6 +1,7 @@
 import type { WordExplanation } from '../types/index.js';
+import { buildCoreGlossaryMap } from './germanCoreGlossary.js';
 
-export const COMMON_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
+const DETAILED_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
   // A
   ausbildung: {
     word: 'Ausbildung',
@@ -326,6 +327,52 @@ export const COMMON_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
   },
 };
 
+export const COMMON_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
+  ...buildCoreGlossaryMap(generateArabicPhonetics),
+  ...DETAILED_GERMAN_DICTIONARY,
+};
+
+function deUmlaut(s: string): string {
+  return s.replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u');
+}
+
+export function lookupDictionaryEntry(rawWord: string): WordExplanation | null {
+  const clean = rawWord.trim().replace(/[.,!?;:„"“»«()]/g, '');
+  if (!clean) return null;
+  const lower = clean.toLowerCase();
+  if (COMMON_GERMAN_DICTIONARY[lower]) return COMMON_GERMAN_DICTIONARY[lower];
+
+  // Try stripping common German plural / adjective / verb inflection endings
+  const candidateStems = new Set<string>();
+  for (const suffix of ['en', 'n', 'e', 'er', 'es', 'em', 's', 'st', 't', 'te', 'ten']) {
+    if (lower.length > suffix.length + 2 && lower.endsWith(suffix)) {
+      const stem = lower.slice(0, -suffix.length);
+      candidateStems.add(stem);
+      candidateStems.add(`${stem}en`);
+      candidateStems.add(`${stem}n`);
+      candidateStems.add(`${stem}e`);
+      const unUmlaut = deUmlaut(stem);
+      if (unUmlaut !== stem) {
+        candidateStems.add(unUmlaut);
+        candidateStems.add(`${unUmlaut}e`);
+      }
+    }
+  }
+  const unUmlautWhole = deUmlaut(lower);
+  if (unUmlautWhole !== lower) candidateStems.add(unUmlautWhole);
+
+  for (const cand of candidateStems) {
+    const match = COMMON_GERMAN_DICTIONARY[cand];
+    if (match) {
+      return {
+        ...match,
+        word: clean,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Intelligent local German morphological analyzer
  * Generates accurate phonetic Arabic transcription, gender heuristics, and conjugations
@@ -333,10 +380,9 @@ export const COMMON_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
  */
 export function analyzeGermanWordLocally(rawWord: string, contextSentence: string = ''): WordExplanation {
   const clean = rawWord.trim().replace(/[.,!?;:„"“»«()]/g, '');
-  const lower = clean.toLowerCase();
-
-  if (COMMON_GERMAN_DICTIONARY[lower]) {
-    return COMMON_GERMAN_DICTIONARY[lower];
+  const dictHit = lookupDictionaryEntry(clean);
+  if (dictHit) {
+    return dictHit;
   }
 
   // Phonetic Arabic approximation generator for German spelling

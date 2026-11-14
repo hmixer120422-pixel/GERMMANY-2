@@ -5,7 +5,7 @@ import {
   DEFAULT_FEMALE_VOICE_ID,
   DEFAULT_MALE_VOICE_ID,
   VERIFIED_ELEVENLABS_VOICES,
-} from './elevenLabsConstants';
+} from './elevenLabsConstants.js';
 
 export {
   DEFAULT_ELEVENLABS_MODEL,
