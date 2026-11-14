@@ -1,5 +1,5 @@
 import mammoth from 'mammoth';
-import { splitGermanSentences } from '../src/utils/audioHash.js';
+import { decodeGermanTextBuffer, splitGermanSentences } from '../src/utils/audioHash.js';
 import {
   applyApiSecurityHeaders,
   readJsonBody,
@@ -29,7 +29,7 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
       const result = await mammoth.extractRawText({ buffer });
       extractedText = result.value;
     } else if (fileType === 'txt' || (fileName && fileName.endsWith('.txt'))) {
-      extractedText = buffer.toString('utf-8');
+      extractedText = decodeGermanTextBuffer(buffer);
     } else if (fileType === 'pdf' || (fileName && fileName.endsWith('.pdf'))) {
       const rawStr = buffer.toString('utf-8');
       const textMatches = rawStr.match(/\((.*?)\)\s*Tj/g) || rawStr.match(/\[(.*?)\]\s*TJ/g);
@@ -42,7 +42,7 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
         extractedText = buffer.toString('utf-8').replace(/[^\x20-\x7E\xC0-\xFF\n\r\t]/g, ' ');
       }
     } else {
-      extractedText = buffer.toString('utf-8');
+      extractedText = decodeGermanTextBuffer(buffer);
     }
 
     const cleanedText = extractedText

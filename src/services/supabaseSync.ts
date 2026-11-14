@@ -72,6 +72,21 @@ function sanitizeStorageFileName(fileName: string): string {
 // SUPABASE STORAGE API (`german-learning` private bucket)
 // =============================================================
 
+const ALLOWED_UPLOAD_MIME_BY_EXT: Record<string, string> = {
+  txt: 'text/plain',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+/**
+ * The bucket only accepts text/plain, PDF, DOCX and octet-stream. Browsers sometimes report
+ * other/empty types (e.g. application/x-pdf), which Storage rejects, so derive it from the extension.
+ */
+function resolveUploadMimeType(file: File): string {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return ALLOWED_UPLOAD_MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
 export async function uploadFileToSupabaseStorage(file: File): Promise<{
   storagePath: string;
   fileName: string;
@@ -83,7 +98,7 @@ export async function uploadFileToSupabaseStorage(file: File): Promise<{
 
   const cleanName = sanitizeStorageFileName(file.name || 'document.txt');
   const storagePath = `${ctx.user.id}/${Date.now()}_${cleanName}`;
-  const mimeType = file.type || 'application/octet-stream';
+  const mimeType = resolveUploadMimeType(file);
 
   const { error } = await ctx.client.storage
     .from(SUPABASE_STORAGE_BUCKET)

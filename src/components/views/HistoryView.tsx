@@ -111,7 +111,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     setUploadingFile(true);
     setStorageError(null);
     try {
-      await uploadFileToSupabaseStorage(file);
+      if (file.size > 25 * 1024 * 1024) {
+        throw new Error(`حجم الملف (${formatBytes(file.size)}) يتجاوز الحد الأقصى 25 MB.`);
+      }
+      const uploaded = await uploadFileToSupabaseStorage(file);
+      if (!uploaded) {
+        throw new Error(
+          'تعذر الرفع: سجّل الدخول بحساب Supabase أولاً، وتأكد من ضبط SUPABASE_URL و SUPABASE_PUBLISHABLE_KEY.'
+        );
+      }
       await loadCloudFiles();
     } catch (err: any) {
       setStorageError(err?.message || 'تعذر رفع الملف إلى Supabase Storage.');

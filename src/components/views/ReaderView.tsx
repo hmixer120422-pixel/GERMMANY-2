@@ -23,7 +23,25 @@ import {
   updateStats,
 } from '../../services/storage';
 import { uploadFileToSupabaseStorage } from '../../services/supabaseSync';
-import { splitGermanSentences } from '../../utils/audioHash';
+import { decodeGermanTextBuffer, formatBytes, splitGermanSentences } from '../../utils/audioHash';
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // matches the `german-learning` bucket limit
+// Vercel serverless functions reject request bodies above ~4.5 MB; base64 adds ~33%.
+const MAX_SERVER_PARSE_BYTES = 3 * 1024 * 1024;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      if (comma < 0) reject(new Error('فشل في قراءة محتوى الملف'));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error || new Error('فشل في قراءة محتوى الملف'));
+    reader.readAsDataURL(file);
+  });
+}
 
 interface ReaderViewProps {
   passage: GermanTextPassage | null;
@@ -179,89 +197,115 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
   // Document Upload & Paste (TXT / PDF / DOCX stored locally in IndexedDB)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
 
     setIsImporting(true);
     setImportError(null);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const base64 = (evt.target?.result as string)?.split(',')[1];
-          if (!base64) {
-            throw new Error('فشل في قراءة محتوى الملف');
-          }
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!['txt', 'pdf', 'docx'].includes(ext)) {
+        throw new Error('نوع الملف غير مدعوم. الأنواع المدعومة: TXT و PDF و DOCX.');
+      }
+      if (file.size === 0) {
+        throw new Error('الملف فارغ.');
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(`حجم الملف (${formatBytes(file.size)}) يتجاوز الحد الأقصى 25 MB.`);
+      }
 
-          const res = await fetch('/api/parse-document', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fileName: file.name,
-              fileContentBase64: base64,
-              fileType: file.name.split('.').pop()?.toLowerCase(),
-            }),
-          });
+      let parsed: { text: string; sentences: string[]; wordCount: number };
 
-          const rawText = await res.text();
-          let data: any;
-          try {
-            data = JSON.parse(rawText);
-          } catch {
-            throw new Error('استجابة غير صالحة أثناء معالجة المستند');
-          }
-
-          if (!res.ok || !data.success) {
-            throw new Error(data.error || 'تعذر معالجة المستند');
-          }
-
-          let storageMeta: {
-            storagePath: string;
-            fileName: string;
-            fileSize: number;
-            mimeType: string;
-          } | null = null;
-          try {
-            storageMeta = await uploadFileToSupabaseStorage(file);
-          } catch (uploadErr: any) {
-            console.warn('Supabase storage upload skipped/failed:', uploadErr?.message || uploadErr);
-          }
-
-          const newPassage: GermanTextPassage = {
-            id: 'import-' + Date.now(),
-            title: file.name.replace(/\.[^/.]+$/, ''),
-            authorInfo: storageMeta ? 'مستند مستورد (سحابي + محلي)' : 'مستند مستورد (محلي)',
-            level: settings.defaultLevel || 'A2',
-            germanText: data.data.text,
-            sentences: data.data.sentences,
-            arabicSummary: '',
-            keyVocabulary: [],
-            wordCount: data.data.wordCount,
-            style: 'Imported Document',
-            topic: file.name,
-            storagePath: storageMeta?.storagePath,
-            fileName: storageMeta?.fileName || file.name,
-            fileSize: storageMeta?.fileSize || file.size,
-            mimeType: storageMeta?.mimeType || file.type || undefined,
-            createdAt: new Date().toISOString(),
-          };
-
-          addTextPassage(newPassage);
-          onSelectPassage(newPassage);
-          switchTab('reading');
-        } catch (innerErr: any) {
-          setImportError(innerErr?.message || 'خطأ في معالجة الملف');
-        } finally {
-          setIsImporting(false);
+      if (ext === 'txt') {
+        // Plain text is decoded in the browser: no server round-trip, no request-size limit.
+        const text = decodeGermanTextBuffer(new Uint8Array(await file.arrayBuffer()))
+          .replace(/\r\n?/g, '\n')
+          .trim();
+        const sentences = splitGermanSentences(text);
+        parsed = { text, sentences, wordCount: text.split(/\s+/).filter(Boolean).length };
+      } else {
+        if (file.size > MAX_SERVER_PARSE_BYTES) {
+          throw new Error(
+            `ملفات ${ext.toUpperCase()} الأكبر من ${formatBytes(MAX_SERVER_PARSE_BYTES)} غير مدعومة (حجم هذا الملف ${formatBytes(file.size)}). قسّم الملف أو استخدم TXT أو الصق النص.`
+          );
         }
+
+        const res = await fetch('/api/parse-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileContentBase64: await fileToBase64(file),
+            fileType: ext,
+          }),
+        });
+
+        if (res.status === 413) {
+          throw new Error('الملف كبير جداً بالنسبة للخادم. جرّب ملفاً أصغر أو بصيغة TXT.');
+        }
+
+        const rawText = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          throw new Error(`استجابة غير صالحة أثناء معالجة المستند (HTTP ${res.status})`);
+        }
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'تعذر معالجة المستند');
+        }
+        parsed = data.data;
+      }
+
+      if (!parsed.text || parsed.sentences.length === 0) {
+        throw new Error('لم يتم العثور على نص قابل للقراءة داخل الملف. إذا كان PDF ممسوحاً ضوئياً (صور) فلا يمكن استخراج نصه.');
+      }
+
+      let storageMeta: {
+        storagePath: string;
+        fileName: string;
+        fileSize: number;
+        mimeType: string;
+      } | null = null;
+      try {
+        storageMeta = await uploadFileToSupabaseStorage(file);
+      } catch (uploadErr: any) {
+        // The text is still imported locally; authorInfo below tells the user it is local-only.
+        console.warn('Supabase storage upload skipped/failed:', uploadErr?.message || uploadErr);
+      }
+
+      const newPassage: GermanTextPassage = {
+        id: 'import-' + Date.now(),
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        authorInfo: storageMeta ? 'مستند مستورد (سحابي + محلي)' : 'مستند مستورد (محلي)',
+        level: settings.defaultLevel || 'A2',
+        germanText: parsed.text,
+        sentences: parsed.sentences,
+        arabicSummary: '',
+        keyVocabulary: [],
+        wordCount: parsed.wordCount,
+        style: 'Imported Document',
+        topic: file.name,
+        storagePath: storageMeta?.storagePath,
+        fileName: storageMeta?.fileName || file.name,
+        fileSize: storageMeta?.fileSize || file.size,
+        mimeType: storageMeta?.mimeType || file.type || undefined,
+        createdAt: new Date().toISOString(),
       };
 
-      reader.readAsDataURL(file);
+      addTextPassage(newPassage);
+      onSelectPassage(newPassage);
+      switchTab('reading');
     } catch (err: any) {
       console.error(err);
-      setImportError(err.message || 'خطأ في رفع الملف');
+      setImportError(err?.message || 'خطأ في معالجة الملف');
+    } finally {
       setIsImporting(false);
+      // Reset so picking the same file again fires onChange (otherwise a retry does nothing).
+      input.value = '';
     }
   };
 

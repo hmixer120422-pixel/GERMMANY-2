@@ -1,3 +1,17 @@
+/**
+ * Decodes the bytes of a German .txt file. Tries UTF-8 first and falls back to Windows-1252
+ * (what Notepad & older tools save), so umlauts and ß are not turned into "�". Strips a BOM.
+ */
+export function decodeGermanTextBuffer(bytes: Uint8Array): string {
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    text = new TextDecoder('windows-1252').decode(bytes);
+  }
+  return text.replace(/^\uFEFF/, '');
+}
+
 export interface AudioHashParams {
   text: string;
   language?: string;

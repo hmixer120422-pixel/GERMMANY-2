@@ -8,7 +8,7 @@ import {
   analyzeGermanSentenceLocally,
   analyzeGermanWordLocally,
 } from './src/data/germanDictionary';
-import { splitGermanSentences } from './src/utils/audioHash';
+import { decodeGermanTextBuffer, splitGermanSentences } from './src/utils/audioHash';
 import {
   DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_FEMALE_VOICE_ID,
@@ -134,7 +134,7 @@ app.post('/api/parse-document', async (req: Request, res: Response) => {
       const result = await mammoth.extractRawText({ buffer });
       extractedText = result.value;
     } else if (fileType === 'txt' || (fileName && fileName.endsWith('.txt'))) {
-      extractedText = buffer.toString('utf-8');
+      extractedText = decodeGermanTextBuffer(buffer);
     } else if (fileType === 'pdf' || (fileName && fileName.endsWith('.pdf'))) {
       const rawStr = buffer.toString('utf-8');
       const textMatches = rawStr.match(/\((.*?)\)\s*Tj/g) || rawStr.match(/\[(.*?)\]\s*TJ/g);
@@ -147,7 +147,7 @@ app.post('/api/parse-document', async (req: Request, res: Response) => {
         extractedText = buffer.toString('utf-8').replace(/[^\x20-\x7E\xC0-\xFF\n\r\t]/g, ' ');
       }
     } else {
-      extractedText = buffer.toString('utf-8');
+      extractedText = decodeGermanTextBuffer(buffer);
     }
 
     const cleanedText = extractedText
