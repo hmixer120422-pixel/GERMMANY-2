@@ -46,6 +46,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const cloudFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadCloudFiles = useCallback(async () => {
@@ -110,6 +111,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     if (!file) return;
     setUploadingFile(true);
     setStorageError(null);
+    setUploadSuccess(null);
     try {
       if (file.size > 25 * 1024 * 1024) {
         throw new Error(`حجم الملف (${formatBytes(file.size)}) يتجاوز الحد الأقصى 25 MB.`);
@@ -121,6 +123,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         );
       }
       await loadCloudFiles();
+      setUploadSuccess(`✓ تم رفع «${uploaded.fileName}» (${formatBytes(uploaded.fileSize)}) إلى السحابة بنجاح.`);
     } catch (err: any) {
       setStorageError(err?.message || 'تعذر رفع الملف إلى Supabase Storage.');
     } finally {
@@ -341,6 +344,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               </button>
             </div>
           </div>
+
+          {uploadSuccess && (
+            <div
+              role="status"
+              className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300"
+            >
+              {uploadSuccess}
+            </div>
+          )}
 
           {storageError && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">

@@ -91,6 +91,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [inputTitle, setInputTitle] = useState<string>('');
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!importNotice) return;
+    const t = setTimeout(() => setImportNotice(null), 12000);
+    return () => clearTimeout(t);
+  }, [importNotice]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Timer state
@@ -203,6 +210,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
     setIsImporting(true);
     setImportError(null);
+    setImportNotice(null);
 
     try {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -270,11 +278,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         fileSize: number;
         mimeType: string;
       } | null = null;
+      let cloudFailure: string | null = null;
       try {
         storageMeta = await uploadFileToSupabaseStorage(file);
       } catch (uploadErr: any) {
-        // The text is still imported locally; authorInfo below tells the user it is local-only.
+        // The text is still imported locally; the notice below tells the user why it is local-only.
         console.warn('Supabase storage upload skipped/failed:', uploadErr?.message || uploadErr);
+        cloudFailure = uploadErr?.message || 'خطأ غير معروف';
       }
 
       const newPassage: GermanTextPassage = {
@@ -299,6 +309,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       addTextPassage(newPassage);
       onSelectPassage(newPassage);
       switchTab('reading');
+
+      const summary = `«${file.name}» — ${parsed.sentences.length} جملة، ${parsed.wordCount} كلمة`;
+      if (storageMeta) {
+        setImportNotice({
+          kind: 'success',
+          text: `✓ تم الاستيراد بنجاح: ${summary}. وتم حفظ نسخة من الملف في السحابة (Supabase).`,
+        });
+      } else {
+        setImportNotice({
+          kind: 'warning',
+          text: `✓ تم الاستيراد محلياً: ${summary}. لم يُحفظ في السحابة: ${
+            cloudFailure || 'سجّل الدخول بحساب Supabase لحفظ الملف في السحابة.'
+          }`,
+        });
+      }
     } catch (err: any) {
       console.error(err);
       setImportError(err?.message || 'خطأ في معالجة الملف');
@@ -519,6 +544,27 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>إعادة المحاولة</span>
+          </button>
+        </div>
+      )}
+
+      {importNotice && (
+        <div
+          role="status"
+          className={`p-3 rounded-xl text-xs flex items-start justify-between gap-3 border ${
+            importNotice.kind === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+              : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+          }`}
+        >
+          <span>{importNotice.text}</span>
+          <button
+            type="button"
+            onClick={() => setImportNotice(null)}
+            className="shrink-0 font-bold opacity-70 hover:opacity-100"
+            aria-label="إغلاق"
+          >
+            ✕
           </button>
         </div>
       )}
