@@ -54,11 +54,18 @@ async function getAuthedContext() {
 }
 
 function sanitizeStorageFileName(fileName: string): string {
-  return fileName
-    .normalize('NFKD')
-    .replace(/[^\w.\-]+/g, '_')
-    .replace(/_+/g, '_')
-    .slice(0, 120);
+  const dot = fileName.lastIndexOf('.');
+  const rawBase = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext =
+    dot > 0 ? fileName.slice(dot).normalize('NFKD').replace(/[^\w.]+/g, '').slice(0, 10) : '';
+  const base =
+    rawBase
+      .normalize('NFKD')
+      .replace(/[^\w\-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 100) || 'document';
+  return `${base}${ext}`;
 }
 
 // =============================================================
@@ -577,11 +584,12 @@ export async function syncAllWithSupabase(local: {
     );
 
     if (textsToPush.length > 0) {
-      await ctx.client
+      const { error: pushTextsErr } = await ctx.client
         .from('saved_texts')
         .upsert(textsToPush.map((t) => mapPassageToRow(ctx.user.id, t)), {
           onConflict: 'user_id,id',
         });
+      if (pushTextsErr) throw pushTextsErr;
     }
 
     // Merge vocabulary (union by id / lowercase germanWord)
@@ -599,11 +607,12 @@ export async function syncAllWithSupabase(local: {
       (a, b) => new Date(b.dateSaved).getTime() - new Date(a.dateSaved).getTime()
     );
     if (wordsToPush.length > 0) {
-      await ctx.client
+      const { error: pushWordsErr } = await ctx.client
         .from('saved_vocabulary')
         .upsert(wordsToPush.map((w) => mapWordToRow(ctx.user.id, w)), {
           onConflict: 'user_id,id',
         });
+      if (pushWordsErr) throw pushWordsErr;
     }
 
     // Merge reading history (keep most recent lastReadAt per textId)
@@ -624,7 +633,7 @@ export async function syncAllWithSupabase(local: {
       (a, b) => new Date(b.lastReadAt).getTime() - new Date(a.lastReadAt).getTime()
     );
     if (histToPush.length > 0) {
-      await ctx.client.from('reading_history').upsert(
+      const { error: pushHistoryErr } = await ctx.client.from('reading_history').upsert(
         histToPush.map((h) => ({
           user_id: ctx.user.id,
           text_id: h.textId,
@@ -636,6 +645,7 @@ export async function syncAllWithSupabase(local: {
         })),
         { onConflict: 'user_id,text_id' }
       );
+      if (pushHistoryErr) throw pushHistoryErr;
     }
 
     // Apply or initialize remote settings & stats
@@ -663,7 +673,7 @@ export async function syncAllWithSupabase(local: {
         mergedActiveTextId = settingsRes.data.active_text_id;
       }
     } else {
-      await ctx.client.from('user_settings').upsert(
+      const { error: initSettingsErr } = await ctx.client.from('user_settings').upsert(
         {
           user_id: ctx.user.id,
           settings: mergedSettings,
@@ -673,6 +683,7 @@ export async function syncAllWithSupabase(local: {
         },
         { onConflict: 'user_id' }
       );
+      if (initSettingsErr) throw initSettingsErr;
     }
 
     notifySync('synced');

@@ -12,6 +12,22 @@ function cleanEnvValue(value?: string): string {
   return trimmed.replace(/^(['"])(.*)\1$/, '$2').trim();
 }
 
+/**
+ * Legacy Supabase keys are JWTs; a service_role key is a JWT whose payload has role=service_role
+ * (the plain string "service_role" never appears in the encoded token), so decode and check it.
+ */
+function isServiceRoleJwt(key: string): boolean {
+  const parts = key.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    return payload?.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 export function getSupabasePublicConfig(): SupabasePublicConfig {
   const url = cleanEnvValue(
     process.env.SUPABASE_URL ||
@@ -29,7 +45,8 @@ export function getSupabasePublicConfig(): SupabasePublicConfig {
   // Safety guard: never expose service_role or sb_secret_ keys to frontend
   const isSecretKey =
     rawKey.startsWith('sb_secret_') ||
-    rawKey.toLowerCase().includes('service_role');
+    rawKey.toLowerCase().includes('service_role') ||
+    isServiceRoleJwt(rawKey);
 
   const isPlaceholder =
     !url ||

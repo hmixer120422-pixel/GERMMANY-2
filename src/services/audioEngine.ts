@@ -417,9 +417,12 @@ class AudioEngine {
       return false;
     }
 
+    const rate = this.settings.speed || 1.0;
     target.pause();
     target.src = url;
-    target.playbackRate = this.settings.speed || 1.0;
+    // Loading a new src resets playbackRate to defaultPlaybackRate, so set both.
+    target.defaultPlaybackRate = rate;
+    target.playbackRate = rate;
 
     try {
       await target.play();

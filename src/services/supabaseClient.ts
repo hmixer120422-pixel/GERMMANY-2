@@ -18,12 +18,30 @@ let cachedConfig: SupabaseRuntimeConfig = {
   bucket: SUPABASE_STORAGE_BUCKET,
 };
 
+function isServiceRoleJwt(key: string): boolean {
+  const parts = key.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')));
+    return payload?.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 function isSafePublishableKey(key: string): boolean {
   if (!key) return false;
   if (key.startsWith('sb_secret_')) return false;
   if (key.toLowerCase().includes('service_role')) return false;
+  if (isServiceRoleJwt(key)) return false;
   return true;
 }
+
+// After a transient failure (offline, cold start, 5xx) allow a new attempt instead of
+// caching "no client" for the whole session; throttled so we never hammer the endpoint.
+const INIT_RETRY_DELAY_MS = 5000;
+let nextInitRetryAt = 0;
 
 /**
  * Initializes the official @supabase/supabase-js client from runtime config
@@ -33,6 +51,7 @@ function isSafePublishableKey(key: string): boolean {
 export async function initSupabaseClient(): Promise<SupabaseClient | null> {
   if (supabaseInstance) return supabaseInstance;
   if (initPromise) return initPromise;
+  if (Date.now() < nextInitRetryAt) return null;
 
   initPromise = (async () => {
     try {
@@ -58,6 +77,8 @@ export async function initSupabaseClient(): Promise<SupabaseClient | null> {
 
       const res = await fetch('/api/supabase/config', { cache: 'no-store' });
       if (!res.ok) {
+        nextInitRetryAt = Date.now() + INIT_RETRY_DELAY_MS;
+        initPromise = null;
         return null;
       }
 
@@ -94,6 +115,8 @@ export async function initSupabaseClient(): Promise<SupabaseClient | null> {
       return null;
     } catch (err) {
       console.error('Failed to initialize Supabase client:', err);
+      nextInitRetryAt = Date.now() + INIT_RETRY_DELAY_MS;
+      initPromise = null;
       return null;
     }
   })();

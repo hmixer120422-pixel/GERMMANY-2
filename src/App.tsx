@@ -113,19 +113,30 @@ export default function App() {
 
       if (client) {
         const { data } = await client.auth.getSession();
+        let hydratedUserId: string | null = null;
         if (mounted && data.session?.user) {
+          hydratedUserId = data.session.user.id;
           setSupabaseUserEmail(data.session.user.email || 'user');
           const synced = await hydrateFromSupabase();
           if (mounted && synced) applyHydratedLocalState();
         }
 
-        const { data: listener } = client.auth.onAuthStateChange(async (_event, session) => {
+        // NOTE: keep this callback synchronous. Awaiting other Supabase calls inside
+        // onAuthStateChange can deadlock supabase-js, so the sync is deferred with setTimeout.
+        // It also only runs once per signed-in user (not on INITIAL_SESSION / TOKEN_REFRESHED).
+        const { data: listener } = client.auth.onAuthStateChange((event, session) => {
           if (!mounted) return;
           if (session?.user) {
             setSupabaseUserEmail(session.user.email || 'user');
-            const synced = await hydrateFromSupabase();
-            if (mounted && synced) applyHydratedLocalState();
+            if (event === 'SIGNED_IN' && hydratedUserId !== session.user.id) {
+              hydratedUserId = session.user.id;
+              setTimeout(async () => {
+                const synced = await hydrateFromSupabase();
+                if (mounted && synced) applyHydratedLocalState();
+              }, 0);
+            }
           } else {
+            hydratedUserId = null;
             setSupabaseUserEmail(null);
           }
         });

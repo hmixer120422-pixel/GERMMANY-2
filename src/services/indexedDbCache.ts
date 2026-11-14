@@ -69,12 +69,14 @@ class IndexedDbAudioCache {
             resolve(null);
             return;
           }
-          // Touch lastAccessedAt for LRU
-          record.lastAccessedAt = Date.now();
-          try {
-            store.put(record);
-          } catch {
-            // ignore touch error
+          // Touch lastAccessedAt for LRU (at most hourly: a put rewrites the entire MP3 blob)
+          if (Date.now() - (record.lastAccessedAt || 0) > 60 * 60 * 1000) {
+            record.lastAccessedAt = Date.now();
+            try {
+              store.put(record);
+            } catch {
+              // ignore touch error
+            }
           }
           resolve(record);
         };

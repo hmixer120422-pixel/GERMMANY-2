@@ -5,11 +5,7 @@ import {
   ListeningStats,
   ReadingHistoryEntry,
 } from '../types';
-import {
-  DEFAULT_ELEVENLABS_MODEL,
-  DEFAULT_FEMALE_VOICE_ID,
-  VERIFIED_ELEVENLABS_VOICES,
-} from './elevenLabsVoices';
+import { DEFAULT_ELEVENLABS_MODEL, DEFAULT_FEMALE_VOICE_ID } from './elevenLabsVoices';
 import {
   clearReadingHistoryInSupabase,
   deletePassageFromSupabase,
@@ -265,6 +261,16 @@ let statsCache: ListeningStats = { ...INITIAL_STATS };
 let historyCache: ReadingHistoryEntry[] = [];
 let dbPromise: Promise<IDBDatabase> | null = null;
 let initializedPromise: Promise<void> | null = null;
+// Once the sample texts/words were seeded, an empty store means "user deleted everything", not "first run".
+let seededTextsFlag = false;
+let seededWordsFlag = false;
+
+function seedFlagRecords(): { key: string; value: boolean }[] {
+  return [
+    { key: 'seededTexts', value: seededTextsFlag },
+    { key: 'seededWords', value: seededWordsFlag },
+  ];
+}
 
 function isIndexedDbSupported(): boolean {
   return typeof window !== 'undefined' && 'indexedDB' in window;
@@ -354,6 +360,10 @@ export async function initBrowserStorage(): Promise<void> {
         idbGetAll<{ key: string; value: any }>(STORES.HISTORY),
       ]);
 
+      const historyMap = new Map(dbHistoryRecords.map((r) => [r.key, r.value]));
+      seededTextsFlag = Boolean(historyMap.get('seededTexts'));
+      seededWordsFlag = Boolean(historyMap.get('seededWords'));
+
       // Migrate legacy localStorage data if IndexedDB is empty
       const legacyTextsRaw = localStorage.getItem(LEGACY_KEYS.TEXTS);
       const legacyWordsRaw = localStorage.getItem(LEGACY_KEYS.SAVED_WORDS);
@@ -372,9 +382,15 @@ export async function initBrowserStorage(): Promise<void> {
           textsCache = [...INITIAL_TEXTS];
         }
         await idbReplaceAll(STORES.TEXTS, textsCache);
+      } else if (seededTextsFlag) {
+        textsCache = [];
       } else {
         textsCache = [...INITIAL_TEXTS];
         await idbReplaceAll(STORES.TEXTS, textsCache);
+      }
+      if (!seededTextsFlag) {
+        seededTextsFlag = true;
+        await idbPutRecord(STORES.HISTORY, { key: 'seededTexts', value: true });
       }
 
       if (dbWords.length > 0) {
@@ -389,12 +405,16 @@ export async function initBrowserStorage(): Promise<void> {
           wordsCache = [...INITIAL_SAVED_WORDS];
         }
         await idbReplaceAll(STORES.VOCABULARY, wordsCache);
+      } else if (seededWordsFlag) {
+        wordsCache = [];
       } else {
         wordsCache = [...INITIAL_SAVED_WORDS];
         await idbReplaceAll(STORES.VOCABULARY, wordsCache);
       }
-
-      const historyMap = new Map(dbHistoryRecords.map((r) => [r.key, r.value]));
+      if (!seededWordsFlag) {
+        seededWordsFlag = true;
+        await idbPutRecord(STORES.HISTORY, { key: 'seededWords', value: true });
+      }
 
       const storedActiveId = historyMap.get('activeTextId') || legacyActiveId;
       activeTextIdCache =
@@ -480,6 +500,9 @@ export function deleteTextPassage(passageId: string): void {
   const updated = textsCache.filter((t) => t.id !== passageId);
   saveStoredTexts(updated);
   historyCache = historyCache.filter((h) => h.textId !== passageId);
+  if (activeTextIdCache === passageId && updated[0]) {
+    setActiveTextId(updated[0].id);
+  }
   void deletePassageFromSupabase(passageId, target?.storagePath);
 }
 
@@ -607,11 +630,10 @@ export function getStoredSettings(): ReadingSettings {
     }
     const parsed = JSON.parse(raw);
     const merged: ReadingSettings = { ...DEFAULT_SETTINGS, ...parsed };
-    const isVerifiedVoice = VERIFIED_ELEVENLABS_VOICES.some(
-      (v) => v.voiceId === merged.elevenLabsVoiceId
-    );
-    // Never allow legacy Browser voice mode or deprecated library-only voice IDs
-    if (!merged.voice || merged.voice === 'Browser' || !merged.elevenLabsVoiceId || !isVerifiedVoice) {
+    // Never allow legacy Browser voice mode or a missing voice id. A voice id that is not in the
+    // built-in fallback list is valid (it comes from the user's live ElevenLabs account), so it is
+    // kept here; App.tsx reconciles it against the live catalogue once that has loaded.
+    if (!merged.voice || merged.voice === 'Browser' || !merged.elevenLabsVoiceId) {
       merged.voice = DEFAULT_SETTINGS.voice;
       merged.voiceGender = DEFAULT_SETTINGS.voiceGender;
       merged.elevenLabsVoiceId = DEFAULT_SETTINGS.elevenLabsVoiceId;
@@ -686,6 +708,7 @@ export async function clearReadingHistoryInIndexedDb(): Promise<void> {
     await idbReplaceAll(STORES.HISTORY, [
       { key: 'activeTextId', value: getActiveTextId() },
       { key: 'stats', value: statsCache },
+      ...seedFlagRecords(),
     ]);
   }
   void clearReadingHistoryInSupabase();
@@ -721,6 +744,7 @@ export async function hydrateFromSupabase(): Promise<boolean> {
       idbReplaceAll(STORES.HISTORY, [
         { key: 'activeTextId', value: activeTextIdCache },
         { key: 'stats', value: statsCache },
+        ...seedFlagRecords(),
         ...historyCache.map((h) => ({ key: `passage:${h.textId}`, value: h })),
       ]),
     ]);
