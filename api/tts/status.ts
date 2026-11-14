@@ -2,14 +2,14 @@ import {
   DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_FEMALE_VOICE_ID,
   DEFAULT_MALE_VOICE_ID,
-} from '../../src/services/elevenLabsConstants';
-import { getElevenLabsApiKey } from '../_lib/elevenlabs';
+} from '../../src/services/elevenLabsConstants.js';
+import { getElevenLabsApiKey } from '../_lib/elevenlabs.js';
 import {
   applyApiSecurityHeaders,
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from '../_lib/http';
+} from '../_lib/http.js';
 
 export default function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);

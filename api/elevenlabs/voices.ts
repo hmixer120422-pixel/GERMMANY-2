@@ -1,16 +1,16 @@
-import { DEFAULT_ELEVENLABS_MODEL } from '../../src/services/elevenLabsConstants';
+import { DEFAULT_ELEVENLABS_MODEL } from '../../src/services/elevenLabsConstants.js';
 import {
   ElevenLabsServiceError,
   fetchElevenLabsVoicesServer,
   getElevenLabsApiKey,
   getFallbackVoicesSnapshot,
-} from '../_lib/elevenlabs';
+} from '../_lib/elevenlabs.js';
 import {
   applyApiSecurityHeaders,
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from '../_lib/http';
+} from '../_lib/http.js';
 
 export default async function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);

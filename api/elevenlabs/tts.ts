@@ -1,10 +1,10 @@
-import { DEFAULT_ELEVENLABS_MODEL } from '../../src/services/elevenLabsConstants';
-import { normalizeGermanText } from '../../src/utils/audioHash';
+import { DEFAULT_ELEVENLABS_MODEL } from '../../src/services/elevenLabsConstants.js';
+import { normalizeGermanText } from '../../src/utils/audioHash.js';
 import {
   ElevenLabsServiceError,
   fetchElevenLabsVoicesServer,
   synthesizeWithElevenLabsServer,
-} from '../_lib/elevenlabs';
+} from '../_lib/elevenlabs.js';
 import {
   applyApiSecurityHeaders,
   readJsonBody,
@@ -12,7 +12,7 @@ import {
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from '../_lib/http';
+} from '../_lib/http.js';
 
 export default async function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);

@@ -1,14 +1,14 @@
 import {
   COMMON_GERMAN_DICTIONARY,
   analyzeGermanWordLocally,
-} from '../../src/data/germanDictionary';
+} from '../../src/data/germanDictionary.js';
 import {
   applyApiSecurityHeaders,
   readJsonBody,
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from '../_lib/http';
+} from '../_lib/http.js';
 
 export default async function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);

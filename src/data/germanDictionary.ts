@@ -1,4 +1,4 @@
-import { WordExplanation } from '../types';
+import type { WordExplanation } from '../types/index.js';
 
 export const COMMON_GERMAN_DICTIONARY: Record<string, WordExplanation> = {
   // A

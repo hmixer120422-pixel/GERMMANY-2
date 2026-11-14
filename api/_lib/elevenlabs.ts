@@ -3,8 +3,8 @@ import {
   DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
   DEFAULT_FEMALE_VOICE_ID,
   VERIFIED_ELEVENLABS_VOICES,
-} from '../../src/services/elevenLabsConstants';
-import type { ElevenLabsVoiceOption, VoiceGender } from '../../src/types';
+} from '../../src/services/elevenLabsConstants.js';
+import type { ElevenLabsVoiceOption, VoiceGender } from '../../src/types/index.js';
 
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
 

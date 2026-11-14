@@ -1,4 +1,4 @@
-import { ElevenLabsVoiceOption } from '../types';
+import type { ElevenLabsVoiceOption } from '../types/index.js';
 
 export const DEFAULT_ELEVENLABS_MODEL = 'eleven_multilingual_v2';
 export const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = 'mp3_44100_128';

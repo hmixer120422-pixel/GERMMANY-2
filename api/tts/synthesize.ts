@@ -1,3 +1,3 @@
-import handler from '../elevenlabs/tts';
+import handler from '../elevenlabs/tts.js';
 
 export default handler;

@@ -1,12 +1,12 @@
 import mammoth from 'mammoth';
-import { splitGermanSentences } from '../src/utils/audioHash';
+import { splitGermanSentences } from '../src/utils/audioHash.js';
 import {
   applyApiSecurityHeaders,
   readJsonBody,
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from './_lib/http';
+} from './_lib/http.js';
 
 export default async function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);

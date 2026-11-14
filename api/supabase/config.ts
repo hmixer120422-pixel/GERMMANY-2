@@ -3,8 +3,8 @@ import {
   sendJson,
   VercelLikeRequest,
   VercelLikeResponse,
-} from '../_lib/http';
-import { getSupabasePublicConfig } from '../_lib/supabaseConfig';
+} from '../_lib/http.js';
+import { getSupabasePublicConfig } from '../_lib/supabaseConfig.js';
 
 export default function handler(req: VercelLikeRequest, res: VercelLikeResponse) {
   applyApiSecurityHeaders(res);
